@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-rest-api-deployment
+  labels:
+    app: go-rest-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: go-rest-api
+  template:
+    metadata:
+      labels:
+        app: go-rest-api
+    spec:
+      containers:
+      - name: go-rest-api
+        image:  $ACR_NAME.azurecr.io/keda-test-app:v0.2
+        ports:
+        - containerPort: 5050
+        env:
+        - name: LOG_LEVEL
+          value: "info"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metrics-modifier-deployment
+  labels:
+    app: metrics-modifier-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: metrics-modifier-api
+  template:
+    metadata:
+      labels:
+        app: metrics-modifier-api
+    spec:
+      containers:
+      - name: metrics-modifier-api
+        image:  $ACR_NAME.azurecr.io/keda-test-app:v0.2
+        ports:
+        - containerPort: 5050
+        env:
+        - name: LOG_LEVEL
+          value: "info"
