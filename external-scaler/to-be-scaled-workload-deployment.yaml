@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workload-to-scale
+  namespace: default
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: workload-to-scale
+  template:
+    metadata:
+      labels:
+        app: workload-to-scale
+    spec:
+      containers:
+      - name: workload-to-scale
+        image: $ACR_NAME.azurecr.io/keda-test-app:v0.2
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 5050
+        env:
+        - name: LOG_LEVEL
+          value: "info"

@@ -1,0 +1,21 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: test-1
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: workload-to-scale
+  pollingInterval: 20
+  minReplicaCount: 1
+  maxReplicaCount: 7
+  triggers:
+    - type: external
+      metadata:
+        scalerAddress: golang-external-scaler.default:6000
+        deploymentName: workload-to-scale
+        deploymentNamespace: default
+        minReplicas: "1"
+        maxReplicas: "7"

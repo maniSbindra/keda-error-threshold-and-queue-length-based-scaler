@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: golang-external-scaler
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: golang-external-scaler
+  template:
+    metadata:
+      labels:
+        app: golang-external-scaler
+    spec:
+      serviceAccountName: external-scaler-sa
+      containers:
+      - name: scaler
+        image: $ACR_NAME.azurecr.io/keda-queue-length-and-error-rate-externalscaler:v0.92
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 6000
+        env:
+        - name: PROMETHEUS_ENDPOINT
+          value: http://prometheus-server.prometheus.svc.cluster.local:80  # default is http://prometheus-server.prometheus:80
+        - name: MSG_QUEUE_LENGTH_METRIC_NAME
+          value: msg_queue_length
+        - name: RATE_429_ERRORS_METRIC_NAME
+          value: rate_429_errors
+        - name: QUEUE_MESSAGE_COUNT_PER_REPLICA # default is 10, scaler will try to have one replica for every QUEUE_MESSAGE_COUNT_PER_REPLICA messages in the queue
+          value: "10"
+        - name: RATE_429_ERROR_THRESHOLD
+          value: "5" # default is 5, Once this error rate theshold is breached scaler will start reducing replicas
+        - name: TIME_BETWEEN_SCALE_DOWN_REQUESTS_MINUTES
+          value: "1" # default is 1, This interval is in minutes. Scaler will submit scale down request only once in this interval. 
+    
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: golang-external-scaler
+  namespace: default
+spec:
+  ports:
+  - port: 6000
+    targetPort: 6000
+  selector:
+    app: golang-external-scaler

@@ -74,92 +74,92 @@ az aks get-credentials --resource-group $RESOURCE_GROUP_NAME --name $AKS_CLUSTER
 
 
 # deploy apps
- kubectl apply -f deployment.yaml    
+kubectl apply -f deployment.yaml    
+
+### Uncomment below lines if Service Bus with Managed Keda Authentication needed
+# az aks show \
+#     --name $AKS_CLUSTER_NAME \
+#     --resource-group $RESOURCE_GROUP_NAME \
+#     --query "[workloadAutoScalerProfile, securityProfile, oidcIssuerProfile]"
 
 
-az aks show \
-    --name $AKS_CLUSTER_NAME \
-    --resource-group $RESOURCE_GROUP_NAME \
-    --query "[workloadAutoScalerProfile, securityProfile, oidcIssuerProfile]"
+# # https://learn.microsoft.com/en-us/azure/aks/keda-workload-identity
 
-
-# https://learn.microsoft.com/en-us/azure/aks/keda-workload-identity
-
-az servicebus namespace create \
-    --name $SB_NAME \
-    --resource-group $RESOURCE_GROUP_NAME \
-    --disable-local-auth
+# az servicebus namespace create \
+#     --name $SB_NAME \
+#     --resource-group $RESOURCE_GROUP_NAME \
+#     --disable-local-auth
 
 
 
-az servicebus queue create \
-    --name $SB_QUEUE_NAME \
-    --namespace $SB_NAME \
-    --resource-group $RESOURCE_GROUP_NAME
+# az servicebus queue create \
+#     --name $SB_QUEUE_NAME \
+#     --namespace $SB_NAME \
+#     --resource-group $RESOURCE_GROUP_NAME
 
-KEDA_FEDERATION_UID_CLIENT_ID=$(az identity create \
-    --name $KEDA_FEDERATION_UID_NAME \
-    --resource-group $RESOURCE_GROUP_NAME \
-    --query "clientId" \
-    --output tsv)
+# KEDA_FEDERATION_UID_CLIENT_ID=$(az identity create \
+#     --name $KEDA_FEDERATION_UID_NAME \
+#     --resource-group $RESOURCE_GROUP_NAME \
+#     --query "clientId" \
+#     --output tsv)
 
-AKS_OIDC_ISSUER=$(az aks show \
-    --name $AKS_CLUSTER_NAME \
-    --resource-group $RESOURCE_GROUP_NAME \
-    --query oidcIssuerProfile.issuerUrl \
-    --output tsv)
-
-
-# federated credential for workload
-az identity federated-credential create \
-    --name $FED_WORKLOAD \
-    --identity-name $KEDA_FEDERATION_UID_NAME \
-    --resource-group $RESOURCE_GROUP_NAME \
-    --issuer $AKS_OIDC_ISSUER \
-    --subject system:serviceaccount:default:$KEDA_FEDERATION_UID_NAME \
-    --audience api://AzureADTokenExchange
-
-# federated credential for keda operator
-az identity federated-credential create \
-    --name $FED_KEDA_CRED_NAME \
-    --identity-name $KEDA_FEDERATION_UID_NAME \
-    --resource-group $RESOURCE_GROUP_NAME \
-    --issuer $AKS_OIDC_ISSUER \
-    --subject system:serviceaccount:kube-system:keda-operator \
-    --audience api://AzureADTokenExchange
+# AKS_OIDC_ISSUER=$(az aks show \
+#     --name $AKS_CLUSTER_NAME \
+#     --resource-group $RESOURCE_GROUP_NAME \
+#     --query oidcIssuerProfile.issuerUrl \
+#     --output tsv)
 
 
-KEDA_FEDERATION_UID_OBJECT_ID=$(az identity show --name $KEDA_FEDERATION_UID_NAME --resource-group $RESOURCE_GROUP_NAME --query "principalId" --output tsv)
+# # federated credential for workload
+# az identity federated-credential create \
+#     --name $FED_WORKLOAD \
+#     --identity-name $KEDA_FEDERATION_UID_NAME \
+#     --resource-group $RESOURCE_GROUP_NAME \
+#     --issuer $AKS_OIDC_ISSUER \
+#     --subject system:serviceaccount:default:$KEDA_FEDERATION_UID_NAME \
+#     --audience api://AzureADTokenExchange
 
-SB_ID=$(az servicebus namespace show --name $SB_NAME --resource-group $RESOURCE_GROUP_NAME --query "id" --output tsv)
-
-az role assignment create --role "Azure Service Bus Data Owner" --assignee-object-id $KEDA_FEDERATION_UID_OBJECT_ID --assignee-principal-type ServicePrincipal --scope $SB_ID
-
-kubectl rollout restart deploy keda-operator -n kube-system
-kubectl get pod -n kube-system -lapp=keda-operator -w
-KEDA_POD_ID=$(kubectl get po -n kube-system -l app.kubernetes.io/name=keda-operator -ojsonpath='{.items[0].metadata.name}')\nkubectl describe po $KEDA_POD_ID -n kube-system
-
-kubectl apply -f - <<EOF
-apiVersion: keda.sh/v1alpha1
-kind: TriggerAuthentication
-metadata:
-  name: azure-servicebus-auth
-  namespace: default  # this must be same namespace as the ScaledObject/ScaledJob that will use it
-spec:
-  podIdentity:
-    provider:  azure-workload
-    identityId: $KEDA_FEDERATION_UID_CLIENT_ID
-EOF
+# # federated credential for keda operator
+# az identity federated-credential create \
+#     --name $FED_KEDA_CRED_NAME \
+#     --identity-name $KEDA_FEDERATION_UID_NAME \
+#     --resource-group $RESOURCE_GROUP_NAME \
+#     --issuer $AKS_OIDC_ISSUER \
+#     --subject system:serviceaccount:kube-system:keda-operator \
+#     --audience api://AzureADTokenExchange
 
 
-kubectl apply -f - <<EOF
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  annotations:
-    azure.workload.identity/client-id: $KEDA_FEDERATION_UID_CLIENT_ID
-  name: $KEDA_FEDERATION_UID_NAME
-EOF
+# KEDA_FEDERATION_UID_OBJECT_ID=$(az identity show --name $KEDA_FEDERATION_UID_NAME --resource-group $RESOURCE_GROUP_NAME --query "principalId" --output tsv)
+
+# SB_ID=$(az servicebus namespace show --name $SB_NAME --resource-group $RESOURCE_GROUP_NAME --query "id" --output tsv)
+
+# az role assignment create --role "Azure Service Bus Data Owner" --assignee-object-id $KEDA_FEDERATION_UID_OBJECT_ID --assignee-principal-type ServicePrincipal --scope $SB_ID
+
+# kubectl rollout restart deploy keda-operator -n kube-system
+# kubectl get pod -n kube-system -lapp=keda-operator -w
+# KEDA_POD_ID=$(kubectl get po -n kube-system -l app.kubernetes.io/name=keda-operator -ojsonpath='{.items[0].metadata.name}')\nkubectl describe po $KEDA_POD_ID -n kube-system
+
+# kubectl apply -f - <<EOF
+# apiVersion: keda.sh/v1alpha1
+# kind: TriggerAuthentication
+# metadata:
+#   name: azure-servicebus-auth
+#   namespace: default  # this must be same namespace as the ScaledObject/ScaledJob that will use it
+# spec:
+#   podIdentity:
+#     provider:  azure-workload
+#     identityId: $KEDA_FEDERATION_UID_CLIENT_ID
+# EOF
+
+
+# kubectl apply -f - <<EOF
+# apiVersion: v1
+# kind: ServiceAccount
+# metadata:
+#   annotations:
+#     azure.workload.identity/client-id: $KEDA_FEDERATION_UID_CLIENT_ID
+#   name: $KEDA_FEDERATION_UID_NAME
+# EOF
 
 
 
@@ -191,7 +191,7 @@ helm repo update
 helm install -f prometheus.yaml prometheus prometheus-community/prometheus --namespace prometheus --create-namespace
 
 # Create KEDA scaled object with custom scaler which checks both msg_queue_length and rate_429_errors
-kubectl apply -f keda-scaled_object.yaml
+kubectl apply -f keda-scaled-object.yaml
 
 
 
