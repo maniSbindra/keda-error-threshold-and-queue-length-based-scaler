@@ -4,7 +4,7 @@ This sample demonstrates how to use KEDA to scale a Kubernetes deployment based 
 
 ## Customization
 
-This keda custom scaler customizations has been written in go.
+This keda custom scaler customizations has been written in go. As required with keda external scaler we need to implement a few operations. The key ones being [GetMetricSpec](./main.go#L83) , and [GetMetrics](./main.go#L95) which returns the customized metric value to keda, based on which the scale up or scale down happens. 
 
 ## Installation
 
