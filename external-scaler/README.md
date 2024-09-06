@@ -21,6 +21,9 @@ Key points to note:
 
 The additional setup steps for external scaler are in the file [additional-setup-for-external-scaler.sh](./additional-setup-for-external-scaler.sh). The $ACR_NAME in the [ext-scaler-deployment-service.yaml](./ext-scaler-deployment-service.yaml) and [to-be-scaled-workload-deployment.yaml](./to-be-scaled-workload-deployment.yaml) files need to be modified with you ACR name.
 
+### Keda scaled object - External scaler configuration
+
+Details of how the keda scaled object integrates with the external scaler please look at [keda-scaled-object-with-ext-scaler.yaml](./keda-scaled-object-with-ext-scaler.yaml#L16)
 
 ## KEDA scaling tests
 
