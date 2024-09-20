@@ -1,6 +1,19 @@
 #!/bin/bash
+set -e
 
-RANDOM_ID="$(openssl rand -hex 3)"
+script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+
+# read RANDOM_ID from .random-id file
+id_path="$script_dir/.random-id"
+RANDOM_ID=""
+if [ -f $id_path ]; then
+    RANDOM_ID=$(cat $id_path)
+fi
+if [ -z "$RANDOM_ID" ]; then
+    RANDOM_ID="$(openssl rand -hex 3)"
+    echo $RANDOM_ID > $id_path
+fi
+
 RESOURCE_GROUP_NAME="keda-mul-scale${RANDOM_ID}-rg"
 REGION="uksouth"
 AKS_CLUSTER_NAME="keda-mult-scale-${RANDOM_ID}"
