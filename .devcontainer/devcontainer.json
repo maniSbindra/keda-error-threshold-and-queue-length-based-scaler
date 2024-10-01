@@ -9,14 +9,23 @@
 			"version": "latest"
 		},
 		"ghcr.io/stuartleeks/dev-container-features/azure-cli-persistence:0": {},
-		"ghcr.io/stuartleeks/dev-container-features/shell-history:0": {}
-	}
+		"ghcr.io/stuartleeks/dev-container-features/shell-history:0": {},
+		"ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+			"version": "latest",
+			"helm": "latest",
+			"minikube": "none"
+		}
+
+	},
 
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	// "features": {},
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
-	// "forwardPorts": [],
+	"forwardPorts": [
+		5060,
+		9090
+	]
 
 	// Use 'postCreateCommand' to run commands after the container is created.
 	// "postCreateCommand": "go version",
