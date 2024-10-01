@@ -18,6 +18,7 @@ spec:
       serverAddress: http://prometheus-server.prometheus.svc.cluster.local:80
       # metricName: pod_memory_percentage_usage_kotlin
       threshold: '20'
-      query: (msg_queue_length)*(clamp_min(clamp_max((rate_429_errors < 5),1),1)) OR on() vector(0)
+      query: ((msg_queue_length)*(clamp(rate_429_errors < 5,1,1))) OR on() ((kube_deployment_status_replicas_ready{deployment='go-rest-api-deployment'}- 1) * 10)
+      # query: (msg_queue_length)*(clamp_min(clamp_max((rate_429_errors < 5),1),1)) OR on() vector(0)
       # The above query returns the queue length if the rate of errors is less than the threshold, else the query returns 0, which stops scale up and 
       # initiates scale down
