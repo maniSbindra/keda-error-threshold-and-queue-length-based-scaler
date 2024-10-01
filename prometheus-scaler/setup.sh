@@ -112,7 +112,7 @@ az aks get-credentials --resource-group $RESOURCE_GROUP_NAME --name $AKS_CLUSTER
 
 
 # deploy apps
-kubectl apply -f deployment.yaml    
+# kubectl apply -f deployment.yaml
 
 ### Uncomment below lines if Service Bus with Managed Keda Authentication needed
 # az aks show \
@@ -208,7 +208,7 @@ az acr build --registry $ACR_NAME --image keda-test-app:v0.2 --file ./Dockerfile
 
 # REPLACE ACR_NAME with your acrname in the deployment.yaml
 # then apply the deployments and the services
-kubectl apply -f deployment.yaml
+ACR_NAME=$ACR_NAME envsubst < deployment.yaml | kubectl apply -f -
 kubectl apply -f service.yaml
 
 
