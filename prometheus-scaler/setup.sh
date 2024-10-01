@@ -223,10 +223,16 @@ kubectl apply -f service.yaml
 
 # install Prometheus
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update
 
 helm install -f prometheus.yaml prometheus prometheus-community/prometheus --namespace prometheus --create-namespace
+
+
+
+# install keda (if not using AKS with keda enabled)
+# helm repo add kedacore https://kedacore.github.io/charts
+# kubectl create namespace keda
+# helm install keda kedacore/keda --version 2.15.1 --namespace keda
 
 # Create KEDA scaled object with custom scaler which checks both msg_queue_length and rate_429_errors
 kubectl apply -f keda-scaled-object.yaml
