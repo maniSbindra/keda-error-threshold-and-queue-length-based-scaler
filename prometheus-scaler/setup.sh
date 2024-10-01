@@ -48,27 +48,35 @@ az group create --name $RESOURCE_GROUP_NAME --location $REGION
 # create a vnet
 az network vnet create --resource-group $RESOURCE_GROUP_NAME --name $VNET_NAME --address-prefixes $VNET_ADDRESS_PREFIX --subnet-name $AKS_SUBNET_NAME --subnet-prefix $AKS_SUBNET_ADDRESS_PREFIX
 
-# get the subnet id
-SUBNET_ID=$(az network vnet subnet show --resource-group $RESOURCE_GROUP_NAME --vnet-name $VNET_NAME --name $AKS_SUBNET_NAME --query id --output tsv)
 
 # create k8s user assigned managed identity
 az identity create --name $K8s_UID_NAME --resource-group $RESOURCE_GROUP_NAME
 
-K8s_CLIENT_ID=$(az identity show --name $K8s_UID_NAME --resource-group $RESOURCE_GROUP_NAME --query id --output tsv)
 
 # create kubelet user assigned managed identity
 az identity create --name $KUBELET_UID_NAME --resource-group $RESOURCE_GROUP_NAME
 
-KUBELET_CLIENT_ID=$(az identity show --name $KUBELET_UID_NAME --resource-group $RESOURCE_GROUP_NAME --query id --output tsv)
 
 # create acr
 az acr create --name $ACR_NAME --resource-group $RESOURCE_GROUP_NAME --sku basic
+
+
+# get the subnet id
+SUBNET_ID=$(az network vnet subnet show --resource-group $RESOURCE_GROUP_NAME --vnet-name $VNET_NAME --name $AKS_SUBNET_NAME --query id --output tsv)
+
+K8s_CLIENT_ID=$(az identity show --name $K8s_UID_NAME --resource-group $RESOURCE_GROUP_NAME --query id --output tsv)
+KUBELET_CLIENT_ID=$(az identity show --name $KUBELET_UID_NAME --resource-group $RESOURCE_GROUP_NAME --query id --output tsv)
+
+
+# VM_SIZE="Standard_DS3_v2"
+VM_SIZE="Standard_D4s_v3"
+
 
 # create AKS cluster
 az aks create \
     --resource-group $RESOURCE_GROUP_NAME \
     --name $AKS_CLUSTER_NAME \
-    --node-vm-size Standard_DS3_v2 \
+    --node-vm-size $VM_SIZE \
     --node-count 2 \
     --network-plugin azure \
     --vnet-subnet-id $SUBNET_ID \
@@ -81,6 +89,23 @@ az aks create \
     --enable-keda \
     --location $REGION \
     --generate-ssh-keys
+
+# create AKS cluster (no keda)
+# az aks create \
+#     --resource-group $RESOURCE_GROUP_NAME \
+#     --name $AKS_CLUSTER_NAME \
+#     --node-vm-size $VM_SIZE \
+#     --node-count 2 \
+#     --network-plugin azure \
+#     --vnet-subnet-id $SUBNET_ID \
+#     --assign-identity $K8s_CLIENT_ID \
+#     --assign-kubelet-identity $KUBELET_CLIENT_ID \
+#     --enable-addons monitoring \
+#     --enable-workload-identity \
+#     --enable-oidc-issuer \
+#     --attach-acr $ACR_NAME \
+#     --location $REGION \
+#     --generate-ssh-keys
 
 # get aks creds
 az aks get-credentials --resource-group $RESOURCE_GROUP_NAME --name $AKS_CLUSTER_NAME --overwrite-existing
