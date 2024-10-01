@@ -80,31 +80,7 @@ type ExternalScaler struct {
 
 	MetricsReader      MetricsReader
 	ReplicaCountReader ReplicaCountReader
-	// deploymentName string
-	// deploymentNamespace string
 }
-
-// const TIME_BETWEEN_SCALE_DOWN_REQUESTS_MINUTES = 4
-
-// var (
-// 	QUEUE_MESSAGE_COUNT_PER_REPLICA          = getEnvInt("QUEUE_MESSAGE_COUNT_PER_REPLICA", 10)
-// 	RATE_429_ERROR_THRESHOLD                 = getEnvInt("RATE_429_ERROR_THRESHOLD", 5)
-// 	TIME_BETWEEN_SCALE_DOWN_REQUESTS_MINUTES = getEnvInt("TIME_BETWEEN_SCALE_DOWN_REQUESTS_MINUTES", 1)
-// 	MSG_QUEUE_LENGTH_METRIC_NAME             = getEnvString("MSG_QUEUE_LENGTH_METRIC_NAME", "msg_queue_length")
-// 	RATE_429_ERRORS_METRIC_NAME              = getEnvString("RATE_429_ERRORS_METRIC_NAME", "rate_429_errors")
-// )
-
-// log all configuration values set via environment variables
-// func init() {
-
-// 	log.Printf("Loading Environment Configurations\n")
-// 	log.Printf("QUEUE_MESSAGE_COUNT_PER_REPLICA: %d\n", QUEUE_MESSAGE_COUNT_PER_REPLICA)
-// 	log.Printf("RATE_429_ERROR_THRESHOLD: %d\n", RATE_429_ERROR_THRESHOLD)
-// 	log.Printf("TIME_BETWEEN_SCALE_DOWN_REQUESTS_MINUTES: %d\n", TIME_BETWEEN_SCALE_DOWN_REQUESTS_MINUTES)
-// 	log.Printf("MSG_QUEUE_LENGTH_METRIC_NAME: %s\n", MSG_QUEUE_LENGTH_METRIC_NAME)
-// 	log.Printf("RATE_429_ERRORS_METRIC_NAME: %s\n", RATE_429_ERRORS_METRIC_NAME)
-// 	log.Printf("PROMETHEUS_ENDPOINT: %s\n", getEnvString("PROMETHEUS_ENDPOINT", "http://prometheus-server.prometheus:80"))
-// }
 
 func getEnvInt(key string, defaultValue int) int {
 	valueStr := os.Getenv(key)
@@ -138,7 +114,7 @@ func (e *ExternalScaler) IsActive(ctx context.Context, scaledObject *pb.ScaledOb
 
 func (e *ExternalScaler) GetMetricSpec(context.Context, *pb.ScaledObjectRef) (*pb.GetMetricSpecResponse, error) {
 
-	slog.Info(fmt.Sprintf("GetMetricSpec called - setting threshold to QUEUE_MESSAGE_COUNT_PER_REPLICA - %s", e.QUEUE_MESSAGE_COUNT_PER_REPLICA))
+	slog.Info(fmt.Sprintf("GetMetricSpec called - setting threshold to QUEUE_MESSAGE_COUNT_PER_REPLICA - %d", e.QUEUE_MESSAGE_COUNT_PER_REPLICA))
 
 	return &pb.GetMetricSpecResponse{
 		MetricSpecs: []*pb.MetricSpec{{
@@ -148,7 +124,7 @@ func (e *ExternalScaler) GetMetricSpec(context.Context, *pb.ScaledObjectRef) (*p
 	}, nil
 }
 
-func (e *ExternalScaler) ValidateRequiredMetadata(metadata map[string]string) error {
+func (e *ExternalScaler) ValidateSetRequiredMetadata(metadata map[string]string) error {
 	if e.METRICS_BACKEND == METRICS_BACKEND_PROMETHEUS {
 		if e.PROMETHEUS_ENDPOINT == "" && metadata["prometheusEndpoint"] == "" {
 			return fmt.Errorf("prometheusEndpoint is required for this configuration and not set")
@@ -172,7 +148,6 @@ func (e *ExternalScaler) ValidateRequiredMetadata(metadata map[string]string) er
 			return fmt.Errorf("serviceBusResourceId is required for this configuration and not set")
 		}
 		if e.SERVICE_BUS_RESOURCE_ID == "" && metadata["serviceBusResourceId"] != "" {
-			// fmt.Printf("Setting serviceBusResourceId to %s\n", strings.Replace(metadata["serviceBusResourceId"], e.AZURE_SUBSCRIPTION_ID, "*********", 1))
 			fmt.Println("Setting serviceBusResourceId")
 			e.SERVICE_BUS_RESOURCE_ID = metadata["serviceBusResourceId"]
 		}
@@ -213,7 +188,6 @@ func (e *ExternalScaler) ValidateRequiredMetadata(metadata map[string]string) er
 			return fmt.Errorf("azureSubscriptionId is required for this configuration and not set")
 		}
 		if e.AZURE_SUBSCRIPTION_ID == "" && metadata["azureSubscriptionId"] != "" {
-			// fmt.Printf("Setting azureSubscriptionId to %s\n", strings.Replace(metadata["azureSubscriptionId"], e.AZURE_SUBSCRIPTION_ID, "*********", 1))
 			fmt.Println("Setting azureSubscriptionId")
 			e.AZURE_SUBSCRIPTION_ID = metadata["azureSubscriptionId"]
 		}
@@ -271,31 +245,34 @@ func (e *ExternalScaler) ValidateRequiredMetadata(metadata map[string]string) er
 
 func (e *ExternalScaler) GetMetrics(_ context.Context, metricRequest *pb.GetMetricsRequest) (*pb.GetMetricsResponse, error) {
 
-	// fmt.Println("GetMetrics called")
 	slog.Info("GetMetrics called")
 
-	e.ValidateRequiredMetadata(metricRequest.ScaledObjectRef.ScalerMetadata)
+	// Validate the metadata and set the required configurations
+	e.ValidateSetRequiredMetadata(metricRequest.ScaledObjectRef.ScalerMetadata)
 
 	replicas, err := e.ReplicaCountReader.GetInstanceCount()
 	if err != nil {
 		fmt.Printf("Failed to get deployment instance count: %v\n", err)
 		return nil, err
 	}
-	// fmt.Printf("number of current workload replicas: %d\n", replicas)
+
+	slog.Debug(fmt.Sprintf("number of current workload replicas: %d\n", replicas))
 
 	rate429Errors, err := e.MetricsReader.GetRate429Errors()
 	if err != nil {
 		fmt.Printf("Failed to get rate_429_errors: %v\n", err)
 		return nil, err
 	}
-	// fmt.Printf("rate_429_errors: %d\n", rate429Errors)
+
+	slog.Debug(fmt.Sprintf("rate_429_errors: %d\n", rate429Errors))
 
 	msgQueueLength, err := e.MetricsReader.GetQueueLength()
 	if err != nil {
 		fmt.Printf("Failed to get msg_queue_length: %v\n", err)
 		return nil, err
 	}
-	// fmt.Printf("msg_queue_length: %d\n", msgQueueLength)
+
+	slog.Debug(fmt.Sprintf("msg_queue_length: %d\n", msgQueueLength))
 
 	revisedMetricValue := e.getRevisedMetricValue(msgQueueLength, rate429Errors, replicas, e.MIN_REPLICAS, e.MAX_REPLICAS, time.Since(e.lastScaleDownRequestTime))
 
@@ -309,11 +286,7 @@ func (e *ExternalScaler) GetMetrics(_ context.Context, metricRequest *pb.GetMetr
 
 func (e *ExternalScaler) getRevisedMetricValue(msgQueueLength int, rate429Errors int, workloadReplicaCount int, minReplicas int, maxReplicas int, timeSinceLastScaleDownRequest time.Duration) int {
 
-	// fmt.Println("")
-	// fmt.Println("")
-	// print current time
-	// fmt.Println("Current Time: ", time.Now())
-	// fmt.Println("Current Time UTC: ", time.Now().UTC())
+	slog.Debug(fmt.Sprintf("Current Time UTC: %v", time.Now().UTC()))
 	fmt.Println("############################################################################################################")
 	slog.Info(fmt.Sprintf("msgQueueLength: %d, rate429Errors: %d, workloadReplicaCount: %d, minReplicas: %d, maxReplicas: %d, timeSinceLastScaleDownRequest: %v", msgQueueLength, rate429Errors, workloadReplicaCount, minReplicas, maxReplicas, timeSinceLastScaleDownRequest))
 
@@ -331,14 +304,12 @@ func (e *ExternalScaler) getRevisedMetricValue(msgQueueLength int, rate429Errors
 
 	if workloadReplicaCount <= minReplicas {
 		retVal = e.QUEUE_MESSAGE_COUNT_PER_REPLICA * minReplicas
-		// slog.Info(fmt.Sprintf("workloadReplicaCount <= minReplicas, returning QUEUE_MESSAGE_COUNT_PER_REPLICA * minReplicas: %d", retVal))
 		fmt.Printf("workloadReplicaCount <= minReplicas, returning QUEUE_MESSAGE_COUNT_PER_REPLICA(%d) * minReplicas(%d): %d\n", e.QUEUE_MESSAGE_COUNT_PER_REPLICA, minReplicas, retVal)
 		return retVal
 	}
 
 	if timeSinceLastScaleDownRequest < scaleDownWaitInterval {
 		retVal = e.replicaCountDuringLastScaleDownRequest * e.QUEUE_MESSAGE_COUNT_PER_REPLICA
-		// slog.Info(fmt.Sprintf("timeSinceLastScaleDownRequest < scaleDownWaitInterval, returning replicaCountDuringLastScaleDownRequest * QUEUE_MESSAGE_COUNT_PER_REPLICA: %d", retVal))
 		fmt.Printf("timeSinceLastScaleDownRequest < scaleDownWaitInterval, returning replicaCountDuringLastScaleDownRequest(%d) * QUEUE_MESSAGE_COUNT_PER_REPLICA(%d): %d\n", e.replicaCountDuringLastScaleDownRequest, e.QUEUE_MESSAGE_COUNT_PER_REPLICA, retVal)
 		return retVal
 	}
@@ -352,7 +323,6 @@ func (e *ExternalScaler) getRevisedMetricValue(msgQueueLength int, rate429Errors
 	requestedReplicaCount := workloadReplicaCount - 1
 	e.replicaCountDuringLastScaleDownRequest = requestedReplicaCount
 	retVal = requestedReplicaCount * e.QUEUE_MESSAGE_COUNT_PER_REPLICA
-	// slog.Info(fmt.Sprintf("Returning requestedReplicaCount (%d) * QUEUE_MESSAGE_COUNT_PER_REPLICA(%d): %d", requestedReplicaCount, e.QUEUE_MESSAGE_COUNT_PER_REPLICA, retVal))
 	fmt.Printf("Returning requestedReplicaCount (%d) * QUEUE_MESSAGE_COUNT_PER_REPLICA(%d): %d \n", requestedReplicaCount, e.QUEUE_MESSAGE_COUNT_PER_REPLICA, retVal)
 	return retVal
 
@@ -365,7 +335,6 @@ func (e *ExternalScaler) StreamIsActive(scaledObject *pb.ScaledObjectRef, epsSer
 	for {
 		select {
 		case <-epsServer.Context().Done():
-			// call cancelled
 			return nil
 		case <-time.Tick(time.Hour * 1):
 			_ = epsServer.Send(&pb.IsActiveResponse{
@@ -382,7 +351,6 @@ func printConfigurationSettings(es *ExternalScaler) {
 	fmt.Println("MSG_QUEUE_LENGTH_METRIC_NAME: ", es.MSG_QUEUE_LENGTH_METRIC_NAME)
 	fmt.Println("RATE_429_ERRORS_METRIC_NAME: ", es.RATE_429_ERRORS_METRIC_NAME)
 	fmt.Println("PROMETHEUS_ENDPOINT: ", es.PROMETHEUS_ENDPOINT)
-	// fmt.Println("AZURE_SUBSCRIPTION_ID: ", es.AZURE_SUBSCRIPTION_ID)
 }
 
 func main() {
@@ -421,19 +389,10 @@ func main() {
 		e.MetricsReader = metricsReaders.NewPrometheusMetricsReader(e.PROMETHEUS_ENDPOINT, e.MSG_QUEUE_LENGTH_METRIC_NAME, e.RATE_429_ERRORS_METRIC_NAME)
 	}
 
-	// if e.METRICS_BACKEND == METRICS_BACKEND_AZURE {
-	// 	e.MetricsReader = metricsReaders.NewAzureMetricsReader(e.SERVICE_BUS_RESOURCE_ID, e.SERVICE_BUS_QUEUE_NAME, e.MSG_QUEUE_LENGTH_METRIC_NAME, e.RATE_429_ERRORS_METRIC_NAME, e.LOG_ANALYTICS_WORKSPACE_ID)
-	// }
-
 	if e.INSTANCE_COMPUTE_BACKEND == INSTANCE_COMPUTE_BACKEND_KUBERNETES {
 		fmt.Printf("Setting Instance compute backend to kubernetes")
 		e.ReplicaCountReader = replicaCountReaders.NewK8sDeploymentReplicaCountReader()
 	}
-
-	// if e.INSTANCE_COMPUTE_BACKEND == INSTANCE_COMPUTE_BACKEND_CONTAINER_APPS {
-	// 	fmt.Printf("Setting Instance compute backend to containerApps")
-	// 	e.ReplicaCountReader = replicaCountReaders.NewContainerAppReplicaCountReader()
-	// }
 
 	pb.RegisterExternalScalerServer(grpcServer, &e)
 	fmt.Println("listenting on :6000")
