@@ -1,6 +1,19 @@
 #!/bin/bash
+set -e
 
-RANDOM_ID="$(openssl rand -hex 3)"
+script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+
+# read RANDOM_ID from .random-id file
+id_path="$script_dir/.random-id"
+RANDOM_ID=""
+if [ -f $id_path ]; then
+    RANDOM_ID=$(cat $id_path)
+fi
+if [ -z "$RANDOM_ID" ]; then
+    RANDOM_ID="$(openssl rand -hex 3)"
+    echo $RANDOM_ID > $id_path
+fi
+
 RESOURCE_GROUP_NAME="keda-mul-scale${RANDOM_ID}-rg"
 REGION="uksouth"
 AKS_CLUSTER_NAME="keda-mult-scale-${RANDOM_ID}"
@@ -25,7 +38,7 @@ FED_WORKLOAD="keda-fed-id-workload"
 FED_KEDA_CRED_NAME="keda-fed-cred"
 
 # Service bus
-SB_NAME=kedascaletestsb
+SB_NAME="kedascaletestsb$RANDOM_ID"
 SB_HOSTNAME="${SB_NAME}.servicebus.windows.net"
 SB_QUEUE_NAME=tasksqueue
 
@@ -35,27 +48,35 @@ az group create --name $RESOURCE_GROUP_NAME --location $REGION
 # create a vnet
 az network vnet create --resource-group $RESOURCE_GROUP_NAME --name $VNET_NAME --address-prefixes $VNET_ADDRESS_PREFIX --subnet-name $AKS_SUBNET_NAME --subnet-prefix $AKS_SUBNET_ADDRESS_PREFIX
 
-# get the subnet id
-SUBNET_ID=$(az network vnet subnet show --resource-group $RESOURCE_GROUP_NAME --vnet-name $VNET_NAME --name $AKS_SUBNET_NAME --query id --output tsv)
 
 # create k8s user assigned managed identity
 az identity create --name $K8s_UID_NAME --resource-group $RESOURCE_GROUP_NAME
 
-K8s_CLIENT_ID=$(az identity show --name $K8s_UID_NAME --resource-group $RESOURCE_GROUP_NAME --query id --output tsv)
 
 # create kubelet user assigned managed identity
 az identity create --name $KUBELET_UID_NAME --resource-group $RESOURCE_GROUP_NAME
 
-KUBELET_CLIENT_ID=$(az identity show --name $KUBELET_UID_NAME --resource-group $RESOURCE_GROUP_NAME --query id --output tsv)
 
 # create acr
 az acr create --name $ACR_NAME --resource-group $RESOURCE_GROUP_NAME --sku basic
+
+
+# get the subnet id
+SUBNET_ID=$(az network vnet subnet show --resource-group $RESOURCE_GROUP_NAME --vnet-name $VNET_NAME --name $AKS_SUBNET_NAME --query id --output tsv)
+
+K8s_CLIENT_ID=$(az identity show --name $K8s_UID_NAME --resource-group $RESOURCE_GROUP_NAME --query id --output tsv)
+KUBELET_CLIENT_ID=$(az identity show --name $KUBELET_UID_NAME --resource-group $RESOURCE_GROUP_NAME --query id --output tsv)
+
+
+# VM_SIZE="Standard_DS3_v2"
+VM_SIZE="Standard_D4s_v3"
+
 
 # create AKS cluster
 az aks create \
     --resource-group $RESOURCE_GROUP_NAME \
     --name $AKS_CLUSTER_NAME \
-    --node-vm-size Standard_DS3_v2 \
+    --node-vm-size $VM_SIZE \
     --node-count 2 \
     --network-plugin azure \
     --vnet-subnet-id $SUBNET_ID \
@@ -69,12 +90,29 @@ az aks create \
     --location $REGION \
     --generate-ssh-keys
 
+# create AKS cluster (no keda)
+# az aks create \
+#     --resource-group $RESOURCE_GROUP_NAME \
+#     --name $AKS_CLUSTER_NAME \
+#     --node-vm-size $VM_SIZE \
+#     --node-count 2 \
+#     --network-plugin azure \
+#     --vnet-subnet-id $SUBNET_ID \
+#     --assign-identity $K8s_CLIENT_ID \
+#     --assign-kubelet-identity $KUBELET_CLIENT_ID \
+#     --enable-addons monitoring \
+#     --enable-workload-identity \
+#     --enable-oidc-issuer \
+#     --attach-acr $ACR_NAME \
+#     --location $REGION \
+#     --generate-ssh-keys
+
 # get aks creds
 az aks get-credentials --resource-group $RESOURCE_GROUP_NAME --name $AKS_CLUSTER_NAME --overwrite-existing
 
 
 # deploy apps
-kubectl apply -f deployment.yaml    
+# kubectl apply -f deployment.yaml
 
 ### Uncomment below lines if Service Bus with Managed Keda Authentication needed
 # az aks show \
@@ -170,7 +208,7 @@ az acr build --registry $ACR_NAME --image keda-test-app:v0.2 --file ./Dockerfile
 
 # REPLACE ACR_NAME with your acrname in the deployment.yaml
 # then apply the deployments and the services
-kubectl apply -f deployment.yaml
+ACR_NAME=$ACR_NAME envsubst < deployment.yaml | kubectl apply -f -
 kubectl apply -f service.yaml
 
 
@@ -185,10 +223,16 @@ kubectl apply -f service.yaml
 
 # install Prometheus
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update
 
 helm install -f prometheus.yaml prometheus prometheus-community/prometheus --namespace prometheus --create-namespace
+
+
+
+# install keda (if not using AKS with keda enabled)
+# helm repo add kedacore https://kedacore.github.io/charts
+# kubectl create namespace keda
+# helm install keda kedacore/keda --version 2.15.1 --namespace keda
 
 # Create KEDA scaled object with custom scaler which checks both msg_queue_length and rate_429_errors
 kubectl apply -f keda-scaled-object.yaml
