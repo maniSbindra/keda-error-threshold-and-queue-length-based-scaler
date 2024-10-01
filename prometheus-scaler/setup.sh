@@ -38,7 +38,7 @@ FED_WORKLOAD="keda-fed-id-workload"
 FED_KEDA_CRED_NAME="keda-fed-cred"
 
 # Service bus
-SB_NAME=kedascaletestsb
+SB_NAME="kedascaletestsb$RANDOM_ID"
 SB_HOSTNAME="${SB_NAME}.servicebus.windows.net"
 SB_QUEUE_NAME=tasksqueue
 
