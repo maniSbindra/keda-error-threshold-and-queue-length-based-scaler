@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -153,12 +154,13 @@ func (a *AzureMetricsReader) GetLogAnalyticsQueryResult(query string) (int, erro
 	client := &http.Client{}
 
 	queryUri := fmt.Sprintf("https://api.loganalytics.io/v1/workspaces/%s/query?query=%s", a.logAnalyticsWorkspaceID, url.QueryEscape(query))
+	slog.Debug(fmt.Sprintf("QueryURI: %s \n", queryUri))
 
 	// fmt.Printf("Query URI: %s\n", queryUri)
 
 	req, err := http.NewRequest("GET", queryUri, nil)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("could not create get request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -171,23 +173,23 @@ func (a *AzureMetricsReader) GetLogAnalyticsQueryResult(query string) (int, erro
 	// make request
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("could not make request: %w", err)
 	}
 
 	// read response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("could not read log analytics workspace response body: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// fmt.Printf("Response body: %s\n", string(body))
+	slog.Debug(fmt.Sprintf("Response body: %s\n", string(body)))
 
 	// parse body to get query result
 	var result map[string]interface{}
 	err = json.Unmarshal(body, &result)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("could not unmarshall log analytics workspace query response body %w", err)
 	}
 	// fmt.Printf("Result: %v\n", result)
 
@@ -197,8 +199,12 @@ func (a *AzureMetricsReader) GetLogAnalyticsQueryResult(query string) (int, erro
 	// fmt.Printf("Tables[0]: %v\n", tables[0])
 
 	rows := tables[0].(map[string]interface{})["rows"].([]interface{})
-	// fmt.Printf("Rows: %v\n", rows)
 
+	// fmt.Printf("Rows: %v\n", rows)
+	if len(rows) == 0 {
+		// this implies no 429 error data exists
+		return 0, nil
+	}
 	row := rows[0]
 	// fmt.Printf("Row: %v\n", row)
 
@@ -210,7 +216,7 @@ func (a *AzureMetricsReader) GetLogAnalyticsQueryResult(query string) (int, erro
 
 	queryResult, err := strconv.Atoi(fmt.Sprintf("%v", res))
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("could not parse  log analytics workspace query response: %w", err)
 	}
 
 	return queryResult, nil
