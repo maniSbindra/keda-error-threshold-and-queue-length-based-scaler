@@ -1,1 +1,4 @@
 external-scaler-containerapps-and-k8s/metricsReaders/azureMetricsReader_testgo
+.env
+
+__pycache__
