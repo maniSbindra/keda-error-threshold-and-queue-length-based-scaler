@@ -6,9 +6,15 @@ param location string
 @description('The base name for the deployment')
 param baseName string
 
-param logLevel string
+param scalerLogLevel string
 
 param kedaExternalScalerImageTag string
+
+param workloadImageTag string
+
+param simulatorImageTag string
+param simulatorApiKey string
+param simulatorLogLevel string
 
 // param currentUserPrincipalId string
 
@@ -35,12 +41,9 @@ var rate429ErrorMetricName = 'rate_429_error'
 var minReplicas = '1'
 var maxReplicas = '7'
 
-
-
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2021-12-01-preview' existing = {
   name: containerRegistryName
 }
-
 
 resource acrPullRoleDefinition 'Microsoft.Authorization/roleDefinitions@2018-01-01-preview' existing = {
   scope: subscription()
@@ -56,8 +59,6 @@ resource containerAppReaderRoleDefintion 'Microsoft.Authorization/roleDefinition
   scope: subscription()
   name: 'ad2dd5fb-cd4b-4fd4-a9b6-4fed3630980b' // https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles#acrpull
 }
-
-
 
 resource assignAcrPullToAca 'Microsoft.Authorization/roleAssignments@2020-04-01-preview' = {
   name: guid(resourceGroup().id, containerRegistry.name, managedIdentity.name, 'AssignAcrPullToAca')
@@ -89,12 +90,11 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   }
 }
 
+// TODO - ideally we would split the identities for the scaler vs the subscriber apps
 resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: '${containerAppEnvName}-identity'
   location: location
 }
-
-
 
 resource containerAppEnv 'Microsoft.App/managedEnvironments@2023-11-02-preview' = {
   name: containerAppEnvName
@@ -127,6 +127,41 @@ resource serviceBusQueue 'Microsoft.ServiceBus/namespaces/queues@2022-01-01-prev
   }
 }
 
+resource serviceBusTopic 'Microsoft.ServiceBus/namespaces/topics@2022-01-01-preview' = {
+  parent: serviceBusNamespace
+  name: 'topic1'
+  properties: {
+    status: 'Active'
+  }
+}
+resource serviceBusTopicSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2023-01-01-preview' = {
+  parent: serviceBusTopic
+  name: 'subscription1'
+  properties: {
+    status: 'Active'
+    lockDuration: 'PT5M'
+    maxDeliveryCount: 10
+  }
+}
+
+// https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles#azure-service-bus-data-receiver
+var roleServiceBusDataReceiverName = '4f6d3b9b-027b-4f4c-9142-0e5a2a2247e0'
+resource roleServiceBusDataReceiver 'Microsoft.Authorization/roleDefinitions@2018-01-01-preview' existing = {
+  scope: subscription()
+  name: roleServiceBusDataReceiverName
+}
+
+resource subscriberSdkSimplifiedServiceBusReadTaskCreated 'Microsoft.Authorization/roleAssignments@2020-04-01-preview' = {
+  name: guid(resourceGroup().id, serviceBusTopicSubscription.id, managedIdentity.id, roleServiceBusDataReceiver.id)
+  scope: serviceBusTopicSubscription
+  properties: {
+    description: 'Assign ServiceBusDataReceiver role to managedidentity for topic1/subscription1'
+    principalId: managedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: roleServiceBusDataReceiver.id
+  }
+}
+
 resource assignMonitoringReader 'Microsoft.Authorization/roleAssignments@2020-04-01-preview' = {
   name: guid(resourceGroup().id, managedIdentity.name, 'AssignMonitoringReader')
   scope: resourceGroup()
@@ -155,7 +190,7 @@ resource apiExtScaler 'Microsoft.App/containerApps@2023-05-01' = {
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
-      '${managedIdentity.id}': {} 
+      '${managedIdentity.id}': {}
     }
   }
   properties: {
@@ -172,7 +207,7 @@ resource apiExtScaler 'Microsoft.App/containerApps@2023-05-01' = {
         clientCertificateMode: 'ignore'
         transport: 'http2'
       }
-       registries: [
+      registries: [
         {
           identity: managedIdentity.id
           server: containerRegistry.properties.loginServer
@@ -191,19 +226,18 @@ resource apiExtScaler 'Microsoft.App/containerApps@2023-05-01' = {
           env: [
             { name: 'QUEUE_MESSAGE_COUNT_PER_REPLICAS', value: queueMessageCountPerReplicas }
             { name: 'RATE_429_ERROR_THRESHOLD', value: rate429ErrorThreshold }
-            { name: 'METRICS_BACKEND', value:  metricsBackend}
-            { name: 'INSTANCE_COMPUTE_BACKEND', value:  instanceComputeBackend}
-            { name: 'AZURE_CLIENT_ID', value:  managedIdentity.properties.clientId }
-            { name: 'AZURE_TENANT_ID', value:  managedIdentity.properties.tenantId}
+            { name: 'METRICS_BACKEND', value: metricsBackend }
+            { name: 'INSTANCE_COMPUTE_BACKEND', value: instanceComputeBackend }
+            { name: 'AZURE_CLIENT_ID', value: managedIdentity.properties.clientId }
+            { name: 'AZURE_TENANT_ID', value: managedIdentity.properties.tenantId }
             { name: 'TIME_BETWEEN_SCALE_DOWN_REQUESTS_MINUTES', value: timeBetweenScaleDownRequestsMinutes }
-            {name: 'MSG_QUEUE_LENGTH_METRIC_NAME', value: msgQueueLengthMetricName}
-            {name: 'RATE_429_ERRORS_METRIC_NAME', value: rate429ErrorMetricName}
-            { name: 'LOG_LEVEL', value: logLevel }
+            { name: 'MSG_QUEUE_LENGTH_METRIC_NAME', value: msgQueueLengthMetricName }
+            { name: 'RATE_429_ERRORS_METRIC_NAME', value: rate429ErrorMetricName }
+            { name: 'LOG_LEVEL', value: scalerLogLevel }
           ]
-          
         }
       ]
-      
+
       scale: {
         minReplicas: 1
         maxReplicas: 1
@@ -218,7 +252,7 @@ resource apiWorkloadApp 'Microsoft.App/containerApps@2023-05-01' = {
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
-      '${managedIdentity.id}': {} 
+      '${managedIdentity.id}': {}
     }
   }
   properties: {
@@ -226,10 +260,7 @@ resource apiWorkloadApp 'Microsoft.App/containerApps@2023-05-01' = {
     configuration: {
       activeRevisionsMode: 'single'
       maxInactiveRevisions: 0
-      ingress: {
-        external: false
-        targetPort: 80
-      }
+      ingress: null
       registries: [
         {
           identity: managedIdentity.id
@@ -241,15 +272,31 @@ resource apiWorkloadApp 'Microsoft.App/containerApps@2023-05-01' = {
       containers: [
         {
           name: 'workload-app'
-          image: 'mcr.microsoft.com/k8se/quickstart:latest'
+          image: '${containerRegistry.properties.loginServer}/${workloadImageTag}'
           resources: {
             cpu: json('0.25')
             memory: '0.5Gi'
           }
+          env: [
+            // Service bus connection:
+            // TODO - use managed identity for service bus connection
+            {
+              name: 'SERVICE_BUS_CONNECTION_STRING'
+              value: 'Endpoint=sb://${serviceBusNamespace.name}.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=${listkeys('${serviceBusNamespace.id}/AuthorizationRules/RootManageSharedAccessKey', serviceBusNamespace.apiVersion).primaryKey}'
+              // value: 'Endpoint=sb://${serviceBusNamespace.properties.serviceBusEndpoint}.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=${serviceBusNamespace.listKeys().primaryKey}'
+            }
+            { name: 'SERVICE_BUS_NAMESPACE', value: serviceBusNamespace.name }
+            { name: 'SERVICE_BUS_TOPIC_NAME', value: serviceBusTopic.name }
+            { name: 'SERVICE_BUS_SUBSCRIPTION_NAME', value: serviceBusTopicSubscription.name }
 
+            // Simulator connection:
+            { name: 'OPENAI_ENDPOINT', value: 'http://${apiSim.properties.configuration.ingress.fqdn}' }
+            { name: 'OPENAI_API_KEY', value: simulatorApiKey }
+            { name: 'OPENAI_EMBEDDING_DEPLOYMENT', value: 'embedding' }
+          ]
         }
       ]
-      
+
       scale: {
         minReplicas: 1
         maxReplicas: 7
@@ -257,23 +304,115 @@ resource apiWorkloadApp 'Microsoft.App/containerApps@2023-05-01' = {
           {
             name: 'keda-external-scaler'
             custom: {
-             type: 'external'
-             metadata: {
-              azureSubscriptionId: subscription().subscriptionId
-              containerApp: workloadAppName
-              logAnalyticsWorkspaceId: logAnalytics.properties.customerId
-              minReplicas: minReplicas
-              maxReplicas: maxReplicas
-              resourceGroup: resourceGroup().name
-              // scalerAddress: apiExtScaler.properties.configuration.ingress.fqdn
-              scalerAddress: '${apiExtScaler.properties.latestRevisionFqdn}:80'
-              serviceBusResourceId: serviceBusNamespace.id
-              serviceBusQueueName: serviceBusQueue.name
-
-             }
+              type: 'external'
+              metadata: {
+                azureSubscriptionId: subscription().subscriptionId
+                containerApp: workloadAppName
+                logAnalyticsWorkspaceId: logAnalytics.properties.customerId
+                minReplicas: minReplicas
+                maxReplicas: maxReplicas
+                resourceGroup: resourceGroup().name
+                // scalerAddress: apiExtScaler.properties.configuration.ingress.fqdn
+                scalerAddress: '${apiExtScaler.properties.latestRevisionFqdn}:80'
+                serviceBusResourceId: serviceBusNamespace.id
+                serviceBusQueueName: serviceBusQueue.name
+              }
             }
           }
         ]
+      }
+    }
+  }
+}
+
+resource apiSim 'Microsoft.App/containerApps@2023-05-01' = {
+  name: 'aoai-api-simulator'
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${managedIdentity.id}': {} // use this for accessing ACR, secrets
+    }
+  }
+  properties: {
+    managedEnvironmentId: containerAppEnv.id
+    configuration: {
+      activeRevisionsMode: 'single'
+      // setting maxInactiveRevisions to 0 makes it easier when iterating and fixing issues by preventing 
+      // old revisions showing in logs etc
+      maxInactiveRevisions: 0
+      ingress: {
+        external: false
+        targetPort: 8000
+        allowInsecure: true
+      }
+      // TODO: include secrets in deployment (and update env vars with references)
+      secrets: [
+        {
+          name: 'simulatorapikey'
+          value: simulatorApiKey
+        }
+        // {
+        //   name: 'appinsightsconnectionstring'
+        //   keyVaultUrl: '${keyVaultUri}secrets/appinsightsconnectionstring${apiSimulatorNameSuffix}'
+        //   identity: managedIdentity.id
+        // }
+        {
+          name: 'deployment-config'
+          value: loadTextContent('../simulator/examples/openai_deployment_config.json')
+        }
+      ]
+      registries: [
+        {
+          identity: managedIdentity.id
+          server: containerRegistry.properties.loginServer
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'aoai-api-simulator'
+          image: '${containerRegistry.properties.loginServer}/${simulatorImageTag}'
+          resources: {
+            cpu: json('1')
+            memory: '2Gi'
+          }
+          env: [
+            { name: 'SIMULATOR_API_KEY', secretRef: 'simulatorapikey' }
+            { name: 'SIMULATOR_MODE', value: 'generate' }
+            { name: 'OPENAI_DEPLOYMENT_CONFIG_PATH', value: '/mnt/deployment-config/simulator_deployment_config.json' }
+            { name: 'LOG_LEVEL', value: simulatorLogLevel }
+            // { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsightsconnectionstring' }
+            // Ensure cloudRoleName is set in telemetry
+            // https://opentelemetry-python.readthedocs.io/en/latest/sdk/environment_variables.html#opentelemetry.sdk.environment_variables.OTEL_SERVICE_NAME
+            { name: 'OTEL_SERVICE_NAME', value: 'aoai-api-simulator' }
+            { name: 'OTEL_METRIC_EXPORT_INTERVAL', value: '10000' } // metric export interval in milliseconds
+            { name: 'ALLOW_UNDEFINED_OPENAI_DEPLOYMENTS', value: 'False' }
+          ]
+          volumeMounts: [
+            {
+              volumeName: 'deployment-config'
+              mountPath: '/mnt/deployment-config'
+            }
+          ]
+        }
+      ]
+      volumes: [
+        {
+          name: 'deployment-config'
+          storageType: 'Secret'
+          secrets: [
+            {
+              secretRef: 'deployment-config'
+              path: 'simulator_deployment_config.json'
+            }
+          ]
+        }
+      ]
+      scale: {
+        minReplicas: 1
+        maxReplicas: 1
       }
     }
   }

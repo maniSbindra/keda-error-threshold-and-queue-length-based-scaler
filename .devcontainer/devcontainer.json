@@ -17,9 +17,22 @@
 			"version": "latest",
 			"helm": "latest",
 			"minikube": "none"
-		}
+		},
+		"ghcr.io/devcontainers/features/docker-in-docker": {}
 	},
 
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"yzhang.markdown-all-in-one",
+				"ms-python.pylint",
+				"ms-azuretools.vscode-bicep",
+				"timonwong.shellcheck",
+				"hediet.vscode-drawio",
+				"charliermarsh.ruff"
+			]
+		}
+	},
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	// "features": {},
 
