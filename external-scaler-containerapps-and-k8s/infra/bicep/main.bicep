@@ -358,6 +358,7 @@ resource apiWorkloadApp 'Microsoft.App/containerApps@2023-05-01' = {
 
 
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'app-insights-connection-string' }
+            { name: 'OTEL_METRIC_EXPORT_INTERVAL', value: '10000' } // metric export interval in milliseconds
           ]
         }
       ]
