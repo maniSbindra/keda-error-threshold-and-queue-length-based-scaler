@@ -1,0 +1,95 @@
+{
+	"version": "Notebook/1.0",
+	"items": [
+		{
+			"type": 1,
+			"content": {
+				"json": "## KEDA scaler workbook\n---\n\nThis workbook captures the common queries/metrics that are relevant for the KEDA scaler sample.\n\nSelect a time range below..."
+			  },
+			"name": "text - 2"
+		},
+		{
+			"type": 9,
+			"content": {
+				"version": "KqlParameterItem/1.0",
+				"parameters": [
+					{
+						"id": "c072a3bd-635a-4ff3-b2d7-806722d380f1",
+						"version": "KqlParameterItem/1.0",
+						"name": "timeRange",
+						"label": "Time Range",
+						"type": 4,
+						"typeSettings": {
+							"selectableValues": [
+								{
+									"durationMs": 300000
+								},
+								{
+									"durationMs": 600000
+								},
+								{
+									"durationMs": 900000
+								},
+								{
+									"durationMs": 1800000
+								},
+								{
+									"durationMs": 3600000
+								},
+								{
+									"durationMs": 14400000
+								},
+								{
+									"durationMs": 43200000
+								},
+								{
+									"durationMs": 86400000
+								},
+								{
+									"durationMs": 172800000
+								},
+								{
+									"durationMs": 259200000
+								}
+							],
+							"allowCustom": true
+						},
+						"timeContext": {
+							"durationMs": 86400000
+						},
+						"value": {
+							"durationMs": 600000
+						}
+					}
+				],
+				"style": "pills",
+				"queryType": 0,
+				"resourceType": "microsoft.operationalinsights/workspaces"
+			},
+			"name": "parameters - 2"
+		},
+		{
+			"type": 3,
+			"content": {
+				"version": "KqlItem/1.0",
+				"query": "AppMetrics\n| where TimeGenerated > {timeRange:start} and TimeGenerated < {timeRange:end}\n| where Name == \"subscriber-app.openai.embeddings.requests\"\n| extend StatusCode = tostring(Properties.status)\n| summarize count=sum(ItemCount) by bin(TimeGenerated, 10s),  StatusCode\n\n",
+				"showQuery": true,
+				"size": 0,
+				"aggregation": 3,
+				"showAnalytics": true,
+				"title": "OpenAI Embeddings Requests by Response Status",
+				"timeContext": {
+					"durationMs": 86400000
+				},
+				"queryType": 0,
+				"resourceType": "microsoft.operationalinsights/workspaces",
+				"visualization": "timechart"
+			},
+			"name": "queryOpenAIEmbeddingsRequests"
+		}
+	],
+	"fallbackResourceIds": [
+		"/subscriptions/f95180d7-b5fc-49c8-a9a7-5b3ee0d8ffc6/resourceGroups/sl-scaler/providers/Microsoft.OperationalInsights/workspaces/aoaiscaler-sl1"
+	],
+	"$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

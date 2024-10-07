@@ -487,6 +487,20 @@ resource apiSim 'Microsoft.App/containerApps@2023-05-01' = {
   }
 }
 
+resource workbook 'Microsoft.Insights/workbooks@2023-06-01' = {
+  name: guid(subscription().subscriptionId, resourceGroup().name, 'keda-workbook')
+  location: location
+  kind: 'shared'
+  properties: {
+    displayName: 'KEDA workbook'
+    description: 'Workbook to show relevant metrics from the system'
+    serializedData: loadTextContent('./keda-workbook.json')
+    sourceId: logAnalytics.id
+    category: 'workbook'
+    version: '1.0'
+  }
+}
+
 output rgName string = resourceGroup().name
 output containerRegistryLoginServer string = containerRegistry.properties.loginServer
 output containerRegistryName string = containerRegistry.name
