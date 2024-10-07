@@ -1,0 +1,29 @@
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+SERVICE_BUS_CONNECTION_STRING = os.getenv("SERVICE_BUS_CONNECTION_STRING", "")
+SERVICE_BUS_NAMESPACE = os.getenv("SERVICE_BUS_NAMESPACE", "")
+SERVICE_BUS_TOPIC_NAME = os.getenv("SERVICE_BUS_TOPIC_NAME", "")
+SERVICE_BUS_SUBSCRIPTION_NAME = os.getenv("SERVICE_BUS_SUBSCRIPTION_NAME", "")
+
+if not SERVICE_BUS_NAMESPACE and not SERVICE_BUS_CONNECTION_STRING:
+    raise ValueError(
+        "One of SERVICE_BUS_NAMESPACE or SERVICE_BUS_CONNECTION_STRING must be set")
+if not SERVICE_BUS_TOPIC_NAME:
+    raise ValueError("SERVICE_BUS_TOPIC_NAME must be set")
+if not SERVICE_BUS_SUBSCRIPTION_NAME:
+    raise ValueError("SERVICE_BUS_SUBSCRIPTION_NAME must be set")
+
+OPENAI_ENDPOINT = os.getenv("OPENAI_ENDPOINT", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_EMBEDDING_DEPLOYMENT = os.getenv("OPENAI_EMBEDDING_DEPLOYMENT", "")
+
+if not OPENAI_ENDPOINT:
+    raise ValueError("OPENAI_ENDPOINT must be set")
+if not OPENAI_API_KEY:
+    raise ValueError("OPENAI_API_KEY must be set")
+if not OPENAI_EMBEDDING_DEPLOYMENT:
+    raise ValueError("OPENAI_EMBEDDING_DEPLOYMENT must be set")

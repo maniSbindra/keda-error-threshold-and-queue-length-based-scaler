@@ -5,7 +5,7 @@ param baseName string
 param location string
 
 
-var containerRegistryName = replace('aoaiscaler-${baseName}', '-', '')
+param containerRegistryName string
 
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2021-12-01-preview' = {
   name: containerRegistryName

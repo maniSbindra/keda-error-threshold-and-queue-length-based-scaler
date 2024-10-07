@@ -1,0 +1,5 @@
+azure-servicebus==7.12.3
+azure-identity==1.18.0
+python-dotenv==1.0.1
+jsons==1.6.3
+openai==1.16.1
