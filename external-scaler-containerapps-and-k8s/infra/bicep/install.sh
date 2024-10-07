@@ -2,7 +2,8 @@
 set -e
 
 SCALER_IMAGE_NAME=containerapp-and-k8s-keda-ext-scaler:v0.4 # this is the image name with tag
-WORKLOAD_IMAGE_NAME=subscriber-app:v0.1
+WORKLOAD_IMAGE_NAME=${WORKLOAD_IMAGE_NAME:=subscriber-app:v0.1}
+
 
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
@@ -29,29 +30,75 @@ ACR_NAME=${ACR_NAME//[^a-zA-Z0-9]/} # Remove non-alphanumeric characters
 
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
+image_exists() {
+
+  acr_name=$1
+  if [[ -z "$acr_name" ]]; then
+    echo "image_exists: pass ACR name as first argument"
+    exit 1
+  fi
+
+  image_with_tag=$2
+  if [[ -z "$image_with_tag" ]]; then
+    echo "image_exists: pass 'image_name:image_tag' as second argument"
+    exit 1
+  fi
+
+  image_name=$(echo "$image_with_tag" | cut -d: -f1)
+  image_tag=$(echo "$image_with_tag" | cut -d: -f2)
+  if [[ -z "$image_name" ]] || [[ -z "$image_tag" ]]; then
+    echo "image_exists: argument is missing the tag"
+    exit 1
+  fi
+
+  set +e
+  existing_image=$(az acr repository show-tags --name "$acr_name" --repository "$image_name" -o tsv --query "contains(@, '${image_tag}')" 2>&1)
+  set -e
+
+  echo "$existing_image"
+
+}
+
 ######################################################################
 # Create resource group and perform base deployment
 ######################################################################
 
-
-az group create --name ${RG_NAME} --location ${LOCATION}
+echo ""
+echo "** Ensure resource group exists"
+az group create --name "${RG_NAME}" --location "${LOCATION}"
 
 cd "$script_dir"
 
+echo ""
+echo "** Deploy base resources"
 az deployment group create \
-        --resource-group ${RG_NAME} \
+        --resource-group "${RG_NAME}" \
         --template-file ./base.bicep \
-        --parameters location=${LOCATION} \
-        --parameters baseName=${BASE_NAME} \
-        --parameters containerRegistryName=${ACR_NAME}
+        --parameters location="${LOCATION}" \
+        --parameters baseName="${BASE_NAME}" \
+        --parameters containerRegistryName="${ACR_NAME}"
 
 ######################################################################
 # Build container images
 ######################################################################
 
-az acr build --registry ${ACR_NAME} --image ${SCALER_IMAGE_NAME} --file ../../../external-scaler-containerapps-and-k8s/Dockerfile ../../../external-scaler-containerapps-and-k8s/ 
+echo ""
+got_image=$(image_exists "$ACR_NAME" "${SCALER_IMAGE_NAME}")
+if [[ "$got_image" == "true" ]]; then
+  echo "** Scaler image ($SCALER_IMAGE_NAME) exists in ACR - skipping build."
+else
+  echo "** Build scaler image"
+  az acr build --registry "${ACR_NAME}" --image "${SCALER_IMAGE_NAME}" --file ../../../external-scaler-containerapps-and-k8s/Dockerfile ../../../external-scaler-containerapps-and-k8s/ 
+fi
 
-az acr build --registry ${ACR_NAME} --image ${WORKLOAD_IMAGE_NAME} --file ../../../subscriber-app/Dockerfile ../../../subscriber-app/
+echo ""
+got_image=$(image_exists "$ACR_NAME" "$WORKLOAD_IMAGE_NAME")
+if [[ "$got_image" == "true" ]]; then
+  echo "** Workload image ($WORKLOAD_IMAGE_NAME) exists in ACR - skipping build."
+else
+  echo "** Build workload image"
+  az acr build --registry "${ACR_NAME}" --image "${WORKLOAD_IMAGE_NAME}" --file ../../../subscriber-app/Dockerfile ../../../subscriber-app/
+fi
 
 ######################################################################
 # Clone and build the simulator image
@@ -59,6 +106,7 @@ az acr build --registry ${ACR_NAME} --image ${WORKLOAD_IMAGE_NAME} --file ../../
 
 
 # Clone simulator
+echo ""
 simulator_path="$script_dir/../simulator"
 simulator_git_tag=${SIMULATOR_GIT_TAG:=v0.5}
 
@@ -102,7 +150,15 @@ fi
 
 # create a tik_token_cache folder to avoid failure in the build
 mkdir -p "$simulator_path/src/aoai-api-simulator/tiktoken_cache"
-az acr build --registry ${ACR_NAME} --image "aoai-api-simulator:${simulator_image_tag}" --file "$simulator_path/src/aoai-api-simulator/Dockerfile" "$simulator_path/src/aoai-api-simulator"
+
+simulator_image_with_tag="aoai-api-simulator:${simulator_image_tag}"
+got_image=$(image_exists "$ACR_NAME" "$simulator_image_with_tag")
+if [[ "$got_image" == "true" ]]; then
+  echo "** Simulator image ($simulator_image_with_tag) exists in ACR - skipping build."
+else
+  echo "** Build simulator image"
+  az acr build --registry "${ACR_NAME}" --image "$simulator_image_with_tag" --file "$simulator_path/src/aoai-api-simulator/Dockerfile" "$simulator_path/src/aoai-api-simulator"
+fi
 
 ######################################################################
 # Deploy the main template
@@ -126,15 +182,19 @@ fi
 jq ".simulatorApiKey = \"${SIMULATOR_API_KEY}\"" < "$output_generated_keys" > "/tmp/generated-keys.json"
 cp "/tmp/generated-keys.json" "$output_generated_keys"
 
+user_id=$(az ad signed-in-user show --output tsv --query id)
 
+echo ""
+echo "** Deploy main template"
 az deployment group create \
-        --resource-group ${RG_NAME} \
+        --resource-group "${RG_NAME}" \
         --template-file "$script_dir/main.bicep" \
-        --parameters location=${LOCATION} \
-        --parameters baseName=${BASE_NAME} \
+        --parameters location="${LOCATION}" \
+        --parameters baseName="${BASE_NAME}" \
         --parameters scalerLogLevel=debug \
         --parameters kedaExternalScalerImageTag=${SCALER_IMAGE_NAME} \
-        --parameters workloadImageTag=${WORKLOAD_IMAGE_NAME} \
+        --parameters workloadImageTag="${WORKLOAD_IMAGE_NAME}" \
         --parameters simulatorImageTag="aoai-api-simulator:${simulator_image_tag}" \
         --parameters simulatorApiKey="${SIMULATOR_API_KEY}" \
-        --parameters simulatorLogLevel=INFO 
+        --parameters simulatorLogLevel=INFO \
+        --parameters currentUserPrincipalId="${user_id}"

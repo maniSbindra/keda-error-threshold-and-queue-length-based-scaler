@@ -16,13 +16,15 @@ param simulatorImageTag string
 param simulatorApiKey string
 param simulatorLogLevel string
 
-// param currentUserPrincipalId string
+param currentUserPrincipalId string
 
 // extract these to a common module to have a single, shared place for these across base/infra?
 var containerRegistryName = replace('aoaiscaler-${baseName}', '-', '')
 var containerAppEnvName = 'aoaiscaler-${baseName}'
 var logAnalyticsName = 'aoaiscaler-${baseName}'
 var appInsightsName = 'aoaiscaler-${baseName}'
+
+var keyVaultName = replace('scaler-${baseName}', '-', '')
 
 var serviceBusNamespaceName = 'aoai-servicebus-${baseName}'
 var serviceBusQueueName = 'aoai-queue-${baseName}'
@@ -70,6 +72,52 @@ resource assignAcrPullToAca 'Microsoft.Authorization/roleAssignments@2020-04-01-
     principalId: managedIdentity.properties.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: acrPullRoleDefinition.id
+  }
+}
+
+resource vault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
+  name: keyVaultName
+}
+var keyVaultUri = vault.properties.vaultUri
+
+resource keyVaultSecretsUserRoleDefinition 'Microsoft.Authorization/roleDefinitions@2018-01-01-preview' existing = {
+  scope: subscription()
+  name: '4633458b-17de-408a-b874-0445c86b69e6' // https://learn.microsoft.com/en-us/azure/key-vault/general/rbac-guide?tabs=azure-cli
+}
+resource assignSecretsReaderRole 'Microsoft.Authorization/roleAssignments@2020-04-01-preview' = {
+  name: guid(resourceGroup().id, vault.name, managedIdentity.name, 'assignSecretsReaderRole')
+  scope: vault
+  properties: {
+    description: 'Assign Key Vault Secrets Reader role to ACA identity'
+    principalId: managedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleDefinition.id
+  }
+}
+
+resource assignSecretsReaderRole_CurrentUser 'Microsoft.Authorization/roleAssignments@2020-04-01-preview' = {
+  name: guid(resourceGroup().id, vault.name, currentUserPrincipalId, 'assignSecretsReaderRole')
+  scope: vault
+  properties: {
+    description: 'Assign Key Vault Secrets Reader role to current user'
+    principalId: currentUserPrincipalId
+    principalType: 'User'
+    roleDefinitionId: keyVaultSecretsUserRoleDefinition.id
+  }
+}
+
+resource simulatorApiKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: vault
+  name: 'simulator-api-key'
+  properties: {
+    value: simulatorApiKey
+  }
+}
+resource appInsightsConnectionStringSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: vault
+  name: 'app-insights-connection-string'
+  properties: {
+    value: appInsights.properties.ConnectionString
   }
 }
 
@@ -263,6 +311,18 @@ resource apiWorkloadApp 'Microsoft.App/containerApps@2023-05-01' = {
       activeRevisionsMode: 'single'
       maxInactiveRevisions: 0
       ingress: null
+      secrets: [
+        {
+          name: 'simulator-api-key'
+          keyVaultUrl: '${keyVaultUri}secrets/simulator-api-key'
+          identity: managedIdentity.id
+        }
+        {
+          name: 'app-insights-connection-string'
+          keyVaultUrl: '${keyVaultUri}secrets/app-insights-connection-string'
+          identity: managedIdentity.id
+        }
+      ]
       registries: [
         {
           identity: managedIdentity.id
@@ -293,8 +353,11 @@ resource apiWorkloadApp 'Microsoft.App/containerApps@2023-05-01' = {
 
             // Simulator connection:
             { name: 'OPENAI_ENDPOINT', value: 'http://${apiSim.properties.configuration.ingress.fqdn}' }
-            { name: 'OPENAI_API_KEY', value: simulatorApiKey }
+            { name: 'OPENAI_API_KEY', secretRef: 'simulator-api-key' }
             { name: 'OPENAI_EMBEDDING_DEPLOYMENT', value: 'embedding' }
+
+
+            { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'app-insights-connection-string' }
           ]
         }
       ]
@@ -351,17 +414,17 @@ resource apiSim 'Microsoft.App/containerApps@2023-05-01' = {
         targetPort: 8000
         allowInsecure: true
       }
-      // TODO: include secrets in deployment (and update env vars with references)
       secrets: [
         {
-          name: 'simulatorapikey'
-          value: simulatorApiKey
+          name: 'simulator-api-key'
+          keyVaultUrl: '${keyVaultUri}secrets/simulator-api-key'
+          identity: managedIdentity.id
         }
-        // {
-        //   name: 'appinsightsconnectionstring'
-        //   keyVaultUrl: '${keyVaultUri}secrets/appinsightsconnectionstring${apiSimulatorNameSuffix}'
-        //   identity: managedIdentity.id
-        // }
+        {
+          name: 'app-insights-connection-string'
+          keyVaultUrl: '${keyVaultUri}secrets/app-insights-connection-string'
+          identity: managedIdentity.id
+        }
         {
           name: 'deployment-config'
           value: loadTextContent('../simulator/examples/openai_deployment_config.json')
@@ -384,11 +447,11 @@ resource apiSim 'Microsoft.App/containerApps@2023-05-01' = {
             memory: '2Gi'
           }
           env: [
-            { name: 'SIMULATOR_API_KEY', secretRef: 'simulatorapikey' }
+            { name: 'SIMULATOR_API_KEY', secretRef: 'simulator-api-key' }
             { name: 'SIMULATOR_MODE', value: 'generate' }
             { name: 'OPENAI_DEPLOYMENT_CONFIG_PATH', value: '/mnt/deployment-config/simulator_deployment_config.json' }
             { name: 'LOG_LEVEL', value: simulatorLogLevel }
-            // { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsightsconnectionstring' }
+            { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'app-insights-connection-string' }
             // Ensure cloudRoleName is set in telemetry
             // https://opentelemetry-python.readthedocs.io/en/latest/sdk/environment_variables.html#opentelemetry.sdk.environment_variables.OTEL_SERVICE_NAME
             { name: 'OTEL_SERVICE_NAME', value: 'aoai-api-simulator' }
