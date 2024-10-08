@@ -513,3 +513,10 @@ output apiExtScalerFqdn string = apiExtScaler.properties.configuration.ingress.f
 output logAnalyticsName string = logAnalytics.name
 
 output kedaScalerIngress string = apiExtScaler.properties.latestRevisionFqdn
+
+output serviceBusTopicName string = serviceBusTopic.name
+output serviceBusTopicSubscriptionName string = serviceBusTopicSubscription.name
+output serviceBusNamespace string = serviceBusNamespace.name
+
+output simulatorUrl string = 'https:://${apiSim.properties.configuration.ingress.fqdn}'
+
