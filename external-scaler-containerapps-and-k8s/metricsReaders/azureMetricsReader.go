@@ -18,10 +18,10 @@ import (
 )
 
 type AzureMetricsReader struct {
-	servicebusResourceID      string
-	servBusQueueName          string
-	serviceBusQueueMetricName string
-	error429MetricName        string
+	servicebusResourceID           string
+	servBusQueueOrTopicName        string
+	serviceBusTopicSubcriptionName string
+	error429MetricName             string
 
 	logAnalyticsWorkspaceID string
 }
@@ -30,13 +30,13 @@ type TokenProvider interface {
 	GetToken(ctx context.Context, opts policy.TokenRequestOptions) (azcore.AccessToken, error)
 }
 
-func NewAzureMetricsReader(servicebusResourceID string, serBusQueueName string, serviceBusQueueMetricName string, error429MetricName string, logAnalyticsWorkspaceID string) *AzureMetricsReader {
+func NewAzureMetricsReader(servicebusResourceID string, serBusQueueOrTopicName string, serBusTopicSubcriptionName string, error429MetricName string, logAnalyticsWorkspaceID string) *AzureMetricsReader {
 	return &AzureMetricsReader{
-		servicebusResourceID:      servicebusResourceID,
-		servBusQueueName:          serBusQueueName,
-		serviceBusQueueMetricName: serviceBusQueueMetricName,
-		error429MetricName:        error429MetricName,
-		logAnalyticsWorkspaceID:   logAnalyticsWorkspaceID,
+		servicebusResourceID:           servicebusResourceID,
+		servBusQueueOrTopicName:        serBusQueueOrTopicName,
+		serviceBusTopicSubcriptionName: serBusTopicSubcriptionName,
+		error429MetricName:             error429MetricName,
+		logAnalyticsWorkspaceID:        logAnalyticsWorkspaceID,
 	}
 }
 
@@ -64,6 +64,13 @@ func (a *AzureMetricsReader) GetRate429Errors() (int, error) {
 	return a.GetLogAnalyticsQueryResult(fmt.Sprintf("AppMetrics | where Name  == '%s' | top 1 by TimeGenerated desc | project rate_429_errors=(Sum /ItemCount)", a.error429MetricName))
 }
 
+func (a *AzureMetricsReader) GetQueueOrTopicLengthRequestUri() string {
+	if a.serviceBusTopicSubcriptionName == "" {
+		return fmt.Sprintf("https://management.azure.com:443%s/queues/%s?api-version=2023-01-01-preview", a.servicebusResourceID, a.servBusQueueOrTopicName)
+	}
+	return fmt.Sprintf("https://management.azure.com:443%s/topics/%s/subscriptions/%s?api-version=2023-01-01-preview", a.servicebusResourceID, a.servBusQueueOrTopicName, a.serviceBusTopicSubcriptionName)
+}
+
 func (a *AzureMetricsReader) GetQueueLength() (int, error) {
 	cred, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
@@ -81,12 +88,12 @@ func (a *AzureMetricsReader) GetQueueLength() (int, error) {
 
 	timespan := fmt.Sprintf("%s/%s", startTimeString, endTimeString)
 
-	// fmt.Printf("Time span: %s\n", timespan)
-
 	timespan = strings.Trim(timespan, " ")
-	requestUri := fmt.Sprintf("https://management.azure.com:443%s/providers/microsoft.Insights/metrics?api-version=2019-07-01&timespan=%s&interval=FULL&metricnames=%s&aggregation=maximum&metricNamespace=microsoft.servicebus/namespaces&top=10&orderby=maximum desc&$filter=EntityName eq '%s'&rollupby=EntityName&validatedimensions=false", a.servicebusResourceID, timespan, a.serviceBusQueueMetricName, a.servBusQueueName)
+	fmt.Printf("Time span: %s\n", timespan)
+	requestUri := a.GetQueueOrTopicLengthRequestUri()
 
 	// fmt.Printf("Request URI: %s\n", requestUri)
+	slog.Debug(fmt.Sprintf("Request URI: %s\n", requestUri))
 
 	bearerToken, err := a.getBearerToken(cred)
 	if err != nil {
@@ -128,13 +135,15 @@ func (a *AzureMetricsReader) GetQueueLength() (int, error) {
 	}
 
 	// fmt.Printf("Response body: %v", result)
+	// slog.Debug(fmt.Sprintf("Response body: %v", result))
 
 	// print result json
 
 	// get metric value
-	metricValue := result["value"].([]interface{})[0].(map[string]interface{})["timeseries"].([]interface{})[0].(map[string]interface{})["data"].([]interface{})[0].(map[string]interface{})["maximum"].(float64)
 
-	return int(metricValue), nil
+	queueOrTopicLength := result["properties"].(map[string]interface{})["countDetails"].(map[string]interface{})["activeMessageCount"].(float64)
+
+	return int(queueOrTopicLength), nil
 
 	// get auth token
 

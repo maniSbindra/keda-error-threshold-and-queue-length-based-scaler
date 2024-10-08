@@ -1,8 +1,10 @@
-# KEDA multi metric scaler - using external scaler trigger
+# Container Apps or K8s based KEDA multi metric external scaler
 
-This sample demonstrates how to use KEDA to scale either a Kubernetes / container apps deployment, based on multiple metrics. Specifically for not scaling up deployment when the error threshold is exceeded, else scaling based on a queue length metric. This keda external scaler implementation scales down 1 instance at a time during scale down.
+This sample demonstrates how to use KEDA to scale either a Kubernetes / container apps deployment, based on multiple metrics. Specifically for not scaling up deployment when the error threshold is exceeded, else scaling based on a queue length metric. This keda external scaler implementation scales down 1 instance at a time during scale down. 
 
-## TODO installation and other details
+## Installation and other details
+
+Use the [install.sh](./infra/bicep/install.sh) script to install the infrastructure.
 
 ## keda external scaler configuration
 
@@ -28,5 +30,8 @@ This sample demonstrates how to use KEDA to scale either a Kubernetes / containe
 * maxReplicas: Maximum number of replicas
 * scalerAddress: Address of the external scaler (such as keda-ext-scaler--uuuuuu.uksouth.azurecontainerapps.io:80) 
 * serviceBusResourceId: Azure resource ID of the service bus
-* serviceBusQueueName: Name of the service bus queue
+* serviceBusQueueOrTopicName: Name of the service bus queue or topic
+* serviceBusTopicSubscriptionName: Name of the service bus topic subscription. For queues, this should be empty("")
+* rate429ErrorsMetricName: Optional. Name of the metric in the Log Analytics workspace / Prometheus that represents the error rate. Default is "rate_429_errors"
+* msgQueueLengthMetricName: Optional. Used when metrics backend is Prometheus. Name of the Prometheus metric that represents the queue length. Default is "msg_queue_length"
 

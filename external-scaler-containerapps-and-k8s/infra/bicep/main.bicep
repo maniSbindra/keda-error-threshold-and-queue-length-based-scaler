@@ -26,6 +26,8 @@ var appInsightsName = 'aoaiscaler-${baseName}'
 
 var serviceBusNamespaceName = 'aoai-servicebus-${baseName}'
 var serviceBusQueueName = 'aoai-queue-${baseName}'
+var serviceBusTopicName = 'aoai-topic-${baseName}'
+var serviceBusTopicSubscriptionName = 'aoai-subscription-${baseName}'
 
 var extScalerAppName = 'aoai-external-scaler'
 var workloadAppName = 'aoai-workload-app'
@@ -35,7 +37,7 @@ var rate429ErrorThreshold = '5'
 var metricsBackend = 'azure'
 var instanceComputeBackend = 'containerApps'
 var timeBetweenScaleDownRequestsMinutes = '1'
-var msgQueueLengthMetricName = 'Messages'
+// var msgQueueLengthMetricName = 'Messages'
 var rate429ErrorMetricName = 'rate_429_error'
 
 var minReplicas = '1'
@@ -129,14 +131,14 @@ resource serviceBusQueue 'Microsoft.ServiceBus/namespaces/queues@2022-01-01-prev
 
 resource serviceBusTopic 'Microsoft.ServiceBus/namespaces/topics@2022-01-01-preview' = {
   parent: serviceBusNamespace
-  name: 'topic1'
+  name: serviceBusTopicName
   properties: {
     status: 'Active'
   }
 }
 resource serviceBusTopicSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2023-01-01-preview' = {
   parent: serviceBusTopic
-  name: 'subscription1'
+  name: serviceBusTopicSubscriptionName
   properties: {
     status: 'Active'
     lockDuration: 'PT5M'
@@ -231,8 +233,8 @@ resource apiExtScaler 'Microsoft.App/containerApps@2023-05-01' = {
             { name: 'AZURE_CLIENT_ID', value: managedIdentity.properties.clientId }
             { name: 'AZURE_TENANT_ID', value: managedIdentity.properties.tenantId }
             { name: 'TIME_BETWEEN_SCALE_DOWN_REQUESTS_MINUTES', value: timeBetweenScaleDownRequestsMinutes }
-            { name: 'MSG_QUEUE_LENGTH_METRIC_NAME', value: msgQueueLengthMetricName }
-            { name: 'RATE_429_ERRORS_METRIC_NAME', value: rate429ErrorMetricName }
+            // { name: 'MSG_QUEUE_LENGTH_METRIC_NAME', value: msgQueueLengthMetricName }
+            // { name: 'RATE_429_ERRORS_METRIC_NAME', value: rate429ErrorMetricName }
             { name: 'LOG_LEVEL', value: scalerLogLevel }
           ]
         }
@@ -315,7 +317,10 @@ resource apiWorkloadApp 'Microsoft.App/containerApps@2023-05-01' = {
                 // scalerAddress: apiExtScaler.properties.configuration.ingress.fqdn
                 scalerAddress: '${apiExtScaler.properties.latestRevisionFqdn}:80'
                 serviceBusResourceId: serviceBusNamespace.id
-                serviceBusQueueName: serviceBusQueue.name
+                serviceBusQueueOrTopicName: serviceBusTopic.name
+                serviceBusTopicSubscriptionName: serviceBusTopicSubscription.name
+                rate429ErrorsMetricName: rate429ErrorMetricName
+                // serviceBusQueueName: serviceBusQueue.name
               }
             }
           }
