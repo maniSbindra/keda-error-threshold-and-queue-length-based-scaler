@@ -13,13 +13,8 @@ import (
 	"github.com/manisbindra/kedaQueueLengthAndErrorRateExternalScaler/replicaCountReaders"
 	"google.golang.org/grpc"
 
-	// "log"
-	// "net"
-
 	"os"
 	"time"
-	// "google.golang.org/grpc/codes"
-	// "google.golang.org/grpc/status"
 )
 
 type ReplicaCountReader interface {
@@ -184,15 +179,6 @@ func (e *ExternalScaler) ValidateSetRequiredMetadata(metadata map[string]string)
 			e.SERVICE_BUS_TOPIC_SUBSCRIPTION_NAME = metadata["serviceBusTopicSubscriptionName"]
 			e.MetricsReader = metricsReaders.NewAzureMetricsReader(e.SERVICE_BUS_RESOURCE_ID, e.SERVICE_BUS_QUEUE_OR_TOPIC_NAME, e.SERVICE_BUS_TOPIC_SUBSCRIPTION_NAME, e.RATE_429_ERRORS_METRIC_NAME, e.LOG_ANALYTICS_WORKSPACE_ID)
 		}
-
-		// if e.SERVICE_BUS_QUEUE_NAME == "" && metadata["serviceBusQueueName"] == "" {
-		// 	return fmt.Errorf("serviceBusQueueName is required for this configuration and not set")
-		// }
-		// if e.SERVICE_BUS_QUEUE_NAME == "" && metadata["serviceBusQueueName"] != "" {
-		// 	fmt.Printf("Setting serviceBusQueueName to %s\n", metadata["serviceBusQueueName"])
-		// 	e.SERVICE_BUS_QUEUE_NAME = metadata["serviceBusQueueName"]
-		// 	e.MetricsReader = metricsReaders.NewAzureMetricsReader(e.SERVICE_BUS_RESOURCE_ID, e.SERVICE_BUS_QUEUE_NAME, e.MSG_QUEUE_LENGTH_METRIC_NAME, e.RATE_429_ERRORS_METRIC_NAME, e.LOG_ANALYTICS_WORKSPACE_ID)
-		// }
 
 	}
 
@@ -417,11 +403,6 @@ func main() {
 		TIME_BETWEEN_SCALE_DOWN_REQUESTS_MINUTES: getEnvInt("TIME_BETWEEN_SCALE_DOWN_REQUESTS_MINUTES", 1),
 		METRICS_BACKEND:                          getEnvString("METRICS_BACKEND", ""),
 		INSTANCE_COMPUTE_BACKEND:                 getEnvString("INSTANCE_COMPUTE_BACKEND", ""),
-
-		// MSG_QUEUE_LENGTH_METRIC_NAME:             getEnvString("MSG_QUEUE_LENGTH_METRIC_NAME", "msg_queue_length"),
-		// RATE_429_ERRORS_METRIC_NAME:              getEnvString("RATE_429_ERRORS_METRIC_NAME", "rate_429_errors"),
-		// PROMETHEUS_ENDPOINT:                      getEnvString("PROMETHEUS_ENDPOINT", ""),
-
 	}
 
 	// wire up metrics and compute backends
@@ -435,10 +416,6 @@ func main() {
 		fmt.Println("INSTANCE_COMPUTE_BACKEND not set, defaulting to kubernetes")
 		e.INSTANCE_COMPUTE_BACKEND = INSTANCE_COMPUTE_BACKEND_KUBERNETES
 	}
-
-	// if e.METRICS_BACKEND == METRICS_BACKEND_PROMETHEUS {
-	// 	e.MetricsReader = metricsReaders.NewPrometheusMetricsReader(e.PROMETHEUS_ENDPOINT, e.MSG_QUEUE_LENGTH_METRIC_NAME, e.RATE_429_ERRORS_METRIC_NAME)
-	// }
 
 	if e.INSTANCE_COMPUTE_BACKEND == INSTANCE_COMPUTE_BACKEND_KUBERNETES {
 		fmt.Printf("Setting Instance compute backend to kubernetes")
