@@ -47,15 +47,13 @@ async def process_subscription_messages(
             topic_name,
             subscription_name
         )
+        renewer = AutoLockRenewer(max_lock_renewal_duration=options.max_lock_renewal_duration)
         receiver = service_bus_client.get_subscription_receiver(
             topic_name=topic_name,
             subscription_name=subscription_name,
+            auto_lock_renewer=renewer
         )
         async with receiver:
-            # AutoLockRenewer performs message lock renewal (for long message processing)
-            # TODO - do we want to provide a callback for renewal failure? What action would we take?
-            renewer = AutoLockRenewer(max_lock_renewal_duration=options.max_lock_renewal_duration)
-
             logger.info("👟 Starting message receiver...")
             while True:
                 # TODO: Add back-off logic when no messages?
@@ -67,10 +65,6 @@ async def process_subscription_messages(
                 message_count = len(received_msgs)
                 if message_count > 0:
                     logger.info("⚡Got messages: count=%s", message_count)
-
-                    # Set up message renewal for the batch
-                    for msg in received_msgs:
-                        renewer.register(receiver, msg)
 
                     # process messages in parallel
                     await asyncio.gather(*[__wrapped_handler(receiver, handler, msg) for msg in received_msgs])
