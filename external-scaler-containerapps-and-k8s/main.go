@@ -49,18 +49,20 @@ type ExternalScaler struct {
 	QUEUE_MESSAGE_COUNT_PER_REPLICA          int
 	RATE_429_ERROR_THRESHOLD                 int
 	TIME_BETWEEN_SCALE_DOWN_REQUESTS_MINUTES int
-	MSG_QUEUE_LENGTH_METRIC_NAME             string
-	RATE_429_ERRORS_METRIC_NAME              string
-
-	// common settings passed via metadata
-	MIN_REPLICAS int
-	MAX_REPLICAS int
 
 	METRICS_BACKEND          string
 	INSTANCE_COMPUTE_BACKEND string
 
-	// Prometheus Metrics Reader settings
-	PROMETHEUS_ENDPOINT string
+	// Prometheus Metrics Reader settings set via metadata
+	PROMETHEUS_ENDPOINT          string
+	MSG_QUEUE_LENGTH_METRIC_NAME string
+
+	// common metrics settings set via metadata
+	RATE_429_ERRORS_METRIC_NAME string
+
+	// common settings set via metadata
+	MIN_REPLICAS int
+	MAX_REPLICAS int
 
 	// Kubernetes Replica reader settins set via metadata
 	DEPLOYMENT_NAME      string
@@ -72,8 +74,10 @@ type ExternalScaler struct {
 	CONTAINER_APP         string
 
 	// Azure Service Bus settings set via metadata
-	SERVICE_BUS_RESOURCE_ID string
-	SERVICE_BUS_QUEUE_NAME  string
+
+	SERVICE_BUS_RESOURCE_ID             string
+	SERVICE_BUS_QUEUE_OR_TOPIC_NAME     string
+	SERVICE_BUS_TOPIC_SUBSCRIPTION_NAME string
 
 	// Azure setting to get rate_429_errors metrics
 	LOG_ANALYTICS_WORKSPACE_ID string
@@ -125,6 +129,15 @@ func (e *ExternalScaler) GetMetricSpec(context.Context, *pb.ScaledObjectRef) (*p
 }
 
 func (e *ExternalScaler) ValidateSetRequiredMetadata(metadata map[string]string) error {
+
+	if e.RATE_429_ERRORS_METRIC_NAME == "" && metadata["rate429ErrorsMetricName"] == "" {
+		e.RATE_429_ERRORS_METRIC_NAME = "rate_429_errors"
+	}
+	if e.RATE_429_ERRORS_METRIC_NAME == "" && metadata["rate429ErrorsMetricName"] != "" {
+		fmt.Printf("Setting rate429ErrorsMetricName to %s\n", metadata["rate429ErrorsMetricName"])
+		e.RATE_429_ERRORS_METRIC_NAME = metadata["rate429ErrorsMetricName"]
+	}
+
 	if e.METRICS_BACKEND == METRICS_BACKEND_PROMETHEUS {
 		if e.PROMETHEUS_ENDPOINT == "" && metadata["prometheusEndpoint"] == "" {
 			return fmt.Errorf("prometheusEndpoint is required for this configuration and not set")
@@ -133,6 +146,16 @@ func (e *ExternalScaler) ValidateSetRequiredMetadata(metadata map[string]string)
 			fmt.Printf("Setting prometheusEndpoint to %s\n", metadata["prometheusEndpoint"])
 			e.PROMETHEUS_ENDPOINT = metadata["prometheusEndpoint"]
 		}
+
+		if e.MSG_QUEUE_LENGTH_METRIC_NAME == "" && metadata["msgQueueLengthMetricName"] == "" {
+			e.MSG_QUEUE_LENGTH_METRIC_NAME = "msg_queue_length"
+		}
+		if e.MSG_QUEUE_LENGTH_METRIC_NAME == "" && metadata["msgQueueLengthMetricName"] != "" {
+			fmt.Printf("Setting msgQueueLengthMetricName to %s\n", metadata["msgQueueLengthMetricName"])
+			e.MSG_QUEUE_LENGTH_METRIC_NAME = metadata["msgQueueLengthMetricName"]
+			e.MetricsReader = metricsReaders.NewPrometheusMetricsReader(e.PROMETHEUS_ENDPOINT, e.MSG_QUEUE_LENGTH_METRIC_NAME, e.RATE_429_ERRORS_METRIC_NAME)
+		}
+
 	}
 
 	if e.METRICS_BACKEND == METRICS_BACKEND_AZURE {
@@ -152,14 +175,24 @@ func (e *ExternalScaler) ValidateSetRequiredMetadata(metadata map[string]string)
 			e.SERVICE_BUS_RESOURCE_ID = metadata["serviceBusResourceId"]
 		}
 
-		if e.SERVICE_BUS_QUEUE_NAME == "" && metadata["serviceBusQueueName"] == "" {
-			return fmt.Errorf("serviceBusQueueName is required for this configuration and not set")
+		if e.SERVICE_BUS_QUEUE_OR_TOPIC_NAME == "" && metadata["serviceBusQueueOrTopicName"] == "" {
+			return fmt.Errorf("serviceBusQueueOrTopicName is required for this configuration and not set")
 		}
-		if e.SERVICE_BUS_QUEUE_NAME == "" && metadata["serviceBusQueueName"] != "" {
-			fmt.Printf("Setting serviceBusQueueName to %s\n", metadata["serviceBusQueueName"])
-			e.SERVICE_BUS_QUEUE_NAME = metadata["serviceBusQueueName"]
-			e.MetricsReader = metricsReaders.NewAzureMetricsReader(e.SERVICE_BUS_RESOURCE_ID, e.SERVICE_BUS_QUEUE_NAME, e.MSG_QUEUE_LENGTH_METRIC_NAME, e.RATE_429_ERRORS_METRIC_NAME, e.LOG_ANALYTICS_WORKSPACE_ID)
+		if e.SERVICE_BUS_QUEUE_OR_TOPIC_NAME == "" && metadata["serviceBusQueueOrTopicName"] != "" {
+			fmt.Printf("Setting serviceBusQueueOrTopicName to %s\n", metadata["serviceBusQueueOrTopicName"])
+			e.SERVICE_BUS_QUEUE_OR_TOPIC_NAME = metadata["serviceBusQueueOrTopicName"]
+			e.SERVICE_BUS_TOPIC_SUBSCRIPTION_NAME = metadata["serviceBusTopicSubscriptionName"]
+			e.MetricsReader = metricsReaders.NewAzureMetricsReader(e.SERVICE_BUS_RESOURCE_ID, e.SERVICE_BUS_QUEUE_OR_TOPIC_NAME, e.SERVICE_BUS_TOPIC_SUBSCRIPTION_NAME, e.RATE_429_ERRORS_METRIC_NAME, e.LOG_ANALYTICS_WORKSPACE_ID)
 		}
+
+		// if e.SERVICE_BUS_QUEUE_NAME == "" && metadata["serviceBusQueueName"] == "" {
+		// 	return fmt.Errorf("serviceBusQueueName is required for this configuration and not set")
+		// }
+		// if e.SERVICE_BUS_QUEUE_NAME == "" && metadata["serviceBusQueueName"] != "" {
+		// 	fmt.Printf("Setting serviceBusQueueName to %s\n", metadata["serviceBusQueueName"])
+		// 	e.SERVICE_BUS_QUEUE_NAME = metadata["serviceBusQueueName"]
+		// 	e.MetricsReader = metricsReaders.NewAzureMetricsReader(e.SERVICE_BUS_RESOURCE_ID, e.SERVICE_BUS_QUEUE_NAME, e.MSG_QUEUE_LENGTH_METRIC_NAME, e.RATE_429_ERRORS_METRIC_NAME, e.LOG_ANALYTICS_WORKSPACE_ID)
+		// }
 
 	}
 
@@ -354,6 +387,22 @@ func printConfigurationSettings(es *ExternalScaler) {
 }
 
 func main() {
+
+	logLevel := getEnvString("LOG_LEVEL", "info")
+
+	switch logLevel {
+	case "info":
+		slog.SetLogLoggerLevel(slog.LevelInfo)
+	case "debug":
+		slog.SetLogLoggerLevel(slog.LevelDebug)
+	case "error":
+		slog.SetLogLoggerLevel(slog.LevelError)
+	case "warn":
+		slog.SetLogLoggerLevel(slog.LevelWarn)
+	default:
+		slog.SetLogLoggerLevel(slog.LevelInfo)
+	}
+
 	grpcServer := grpc.NewServer()
 	lis, err := net.Listen("tcp", ":6000")
 	if err != nil {
@@ -366,11 +415,13 @@ func main() {
 		QUEUE_MESSAGE_COUNT_PER_REPLICA:          getEnvInt("QUEUE_MESSAGE_COUNT_PER_REPLICA", 10),
 		RATE_429_ERROR_THRESHOLD:                 getEnvInt("RATE_429_ERROR_THRESHOLD", 5),
 		TIME_BETWEEN_SCALE_DOWN_REQUESTS_MINUTES: getEnvInt("TIME_BETWEEN_SCALE_DOWN_REQUESTS_MINUTES", 1),
-		MSG_QUEUE_LENGTH_METRIC_NAME:             getEnvString("MSG_QUEUE_LENGTH_METRIC_NAME", "msg_queue_length"),
-		RATE_429_ERRORS_METRIC_NAME:              getEnvString("RATE_429_ERRORS_METRIC_NAME", "rate_429_errors"),
-		PROMETHEUS_ENDPOINT:                      getEnvString("PROMETHEUS_ENDPOINT", ""),
 		METRICS_BACKEND:                          getEnvString("METRICS_BACKEND", ""),
 		INSTANCE_COMPUTE_BACKEND:                 getEnvString("INSTANCE_COMPUTE_BACKEND", ""),
+
+		// MSG_QUEUE_LENGTH_METRIC_NAME:             getEnvString("MSG_QUEUE_LENGTH_METRIC_NAME", "msg_queue_length"),
+		// RATE_429_ERRORS_METRIC_NAME:              getEnvString("RATE_429_ERRORS_METRIC_NAME", "rate_429_errors"),
+		// PROMETHEUS_ENDPOINT:                      getEnvString("PROMETHEUS_ENDPOINT", ""),
+
 	}
 
 	// wire up metrics and compute backends
@@ -385,9 +436,9 @@ func main() {
 		e.INSTANCE_COMPUTE_BACKEND = INSTANCE_COMPUTE_BACKEND_KUBERNETES
 	}
 
-	if e.METRICS_BACKEND == METRICS_BACKEND_PROMETHEUS {
-		e.MetricsReader = metricsReaders.NewPrometheusMetricsReader(e.PROMETHEUS_ENDPOINT, e.MSG_QUEUE_LENGTH_METRIC_NAME, e.RATE_429_ERRORS_METRIC_NAME)
-	}
+	// if e.METRICS_BACKEND == METRICS_BACKEND_PROMETHEUS {
+	// 	e.MetricsReader = metricsReaders.NewPrometheusMetricsReader(e.PROMETHEUS_ENDPOINT, e.MSG_QUEUE_LENGTH_METRIC_NAME, e.RATE_429_ERRORS_METRIC_NAME)
+	// }
 
 	if e.INSTANCE_COMPUTE_BACKEND == INSTANCE_COMPUTE_BACKEND_KUBERNETES {
 		fmt.Printf("Setting Instance compute backend to kubernetes")
