@@ -1,17 +1,17 @@
 import asyncio
-import os
-import jsons
 import logging
+import os
 
+import jsons
 from azure.identity import DefaultAzureCredential
 from azure.monitor.opentelemetry import configure_azure_monitor
 from azure.servicebus import ServiceBusReceivedMessage
 from azure.servicebus.aio import ServiceBusClient
-from openai import AzureOpenAI, RateLimitError, APIStatusError
+from openai import APIStatusError, AzureOpenAI
 
 import config
 import metrics
-from service_bus import process_messages, apply_retry, MessageResult
+from service_bus import MessageResult, apply_retry, process_subscription_messages
 
 log_level = os.getenv("LOG_LEVEL") or "INFO"
 
@@ -60,7 +60,7 @@ async def message_processor(msg: ServiceBusReceivedMessage) -> MessageResult:
             response.data[0].embedding[0],
             response.data[0].embedding[1]
         )
-        metrics.increment_open_ai_retry(200) # emit success metric
+        metrics.increment_open_ai_retry(200)  # emit success metric
 
         # PLACEHOLDER: This is where to add logic to save the embedding or pass back to the originator
 
@@ -68,19 +68,17 @@ async def message_processor(msg: ServiceBusReceivedMessage) -> MessageResult:
 
     except APIStatusError as e:
         logger.info("[%s, %s] API status error: %s",
-                    message_id, delivery_count, e)
+                    message_id, delivery_count, e.status_code)
         metrics.increment_open_ai_retry(e.status_code)
         return MessageResult.RETRY
 
 
-application_insights_connection_string = os.getenv(
-    "APPLICATIONINSIGHTS_CONNECTION_STRING")
-if application_insights_connection_string:
+if config.APPLICATION_INSIGHTS_CONNECTION_STRING:
     logger.info("🚀 Configuring Azure Monitor telemetry")
 
     # Options: https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/monitor/azure-monitor-opentelemetry#usage
     configure_azure_monitor(
-        connection_string=application_insights_connection_string
+        connection_string=config.APPLICATION_INSIGHTS_CONNECTION_STRING
     )
 else:
     logger.info(
@@ -90,4 +88,10 @@ else:
 
 service_bus_client = get_service_bus_client()
 handler = apply_retry(message_processor)
-asyncio.run(process_messages(service_bus_client, handler))
+asyncio.run(
+    process_subscription_messages(
+        service_bus_client,
+        config.SERVICE_BUS_TOPIC_NAME,
+        config.SERVICE_BUS_SUBSCRIPTION_NAME,
+        handler)
+)

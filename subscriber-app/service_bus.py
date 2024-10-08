@@ -1,35 +1,72 @@
 import asyncio
-
+import logging
 from typing import Awaitable, Callable
 
 from azure.servicebus import ServiceBusReceivedMessage
-from azure.servicebus.aio import ServiceBusClient, AutoLockRenewer, ServiceBusReceiver
-import config
+from azure.servicebus.aio import AutoLockRenewer, ServiceBusClient, ServiceBusReceiver
+
+logger = logging.getLogger(__name__)
 
 
-async def process_messages(service_bus_client: ServiceBusClient, handler):
+# enum for message result status
+class MessageResult:
+    """
+    Enum for message processing result status:
+    - SUCCESS: message was processed successfully and should be marked as completed
+    - RETRY: message processing failed and should be retried
+    - DROP: message processing failed and should be dropped (dead-lettered)
+    """
+    SUCCESS = "success"
+    RETRY = "retry"
+    DROP = "drop"
+
+
+class MessageProcessingOptions:
+    """
+    Options for message processing
+    """
+    max_message_count: int = 10
+    max_wait_time: int = 30
+    max_lock_renewal_duration: int = 5 * 60
+
+
+async def process_subscription_messages(
+    service_bus_client: ServiceBusClient,
+    topic_name: str,
+    subscription_name: str,
+    handler: Callable[[ServiceBusReceivedMessage], Awaitable[MessageResult]],
+    options: MessageProcessingOptions = None):
+    """
+    Start a message processing look to receive and process messages from a service bus topic subscription
+    """
+
+    options = options or MessageProcessingOptions()
     async with service_bus_client:
-        print(f"👟 Creating service bus receiver... (topic={config.SERVICE_BUS_TOPIC_NAME}, " +
-              f"subscription={config.SERVICE_BUS_SUBSCRIPTION_NAME})", flush=True)
+        logger.info(
+            "👟 Creating service bus receiver... (topic=%s, subscription=%s)",
+            topic_name,
+            subscription_name
+        )
         receiver = service_bus_client.get_subscription_receiver(
-            topic_name=config.SERVICE_BUS_TOPIC_NAME,
-            subscription_name=config.SERVICE_BUS_SUBSCRIPTION_NAME,
+            topic_name=topic_name,
+            subscription_name=subscription_name,
         )
         async with receiver:
             # AutoLockRenewer performs message lock renewal (for long message processing)
             # TODO - do we want to provide a callback for renewal failure? What action would we take?
-            # TODO - make max_lock_renewal_duration configurable
-            renewer = AutoLockRenewer(max_lock_renewal_duration=5 * 60)
+            renewer = AutoLockRenewer(max_lock_renewal_duration=options.max_lock_renewal_duration)
 
-            print("👟 Starting message receiver...", flush=True)
+            logger.info("👟 Starting message receiver...")
             while True:
                 # TODO: Add back-off logic when no messages?
-                # TODO: Add max message count etc to config
-                received_msgs = await receiver.receive_messages(max_message_count=10, max_wait_time=30)
+                received_msgs = await receiver.receive_messages(
+                    max_message_count=options.max_message_count,
+                    max_wait_time=options.max_wait_time
+                )
 
                 message_count = len(received_msgs)
                 if message_count > 0:
-                    print(f"⚡Got messages: count {message_count}", flush=True)
+                    logger.info("⚡Got messages: count=%s", message_count)
 
                     # Set up message renewal for the batch
                     for msg in received_msgs:
@@ -39,13 +76,6 @@ async def process_messages(service_bus_client: ServiceBusClient, handler):
                     await asyncio.gather(*[__wrapped_handler(receiver, handler, msg) for msg in received_msgs])
 
 
-# enum for message result status
-class MessageResult:
-    SUCCESS = "success"
-    RETRY = "retry"
-    DROP = "drop"
-
-
 async def __wrapped_handler(receiver: ServiceBusReceiver, handler, msg: ServiceBusReceivedMessage):
     # TODO - add logic to retry the message delivery with back-off before abandoning
 
@@ -53,7 +83,7 @@ async def __wrapped_handler(receiver: ServiceBusReceiver, handler, msg: ServiceB
     try:
         result = await handler(msg)
     except Exception as e:
-        print(f"Error processing message: {e}")
+        logger.error("Error processing message: %s", e)
         result = MessageResult.RETRY
 
     if result == MessageResult.SUCCESS or result is None:  # default to success if no exception
@@ -78,23 +108,23 @@ def apply_retry(handler: Callable[[ServiceBusReceivedMessage], Awaitable[Message
         wait_time = 1
         while True:
             try:
-                print(f"[{message_id}, {delivery_count}] Attempt {
-                      retry_count + 1}...", flush=True)
+                logger.info("[%s, %s] Attempt %s...", message_id,
+                            delivery_count, retry_count+1)
                 response = await handler(msg)
                 if response is not None and response != MessageResult.RETRY:
-                    print(f"[{message_id}, {delivery_count}] Returning response: {
-                          response}", flush=True)
+                    logger.info("[%s, %s] Returning response: %s",
+                                message_id, delivery_count, response)
                     return response
             except Exception as e:
-                print(f"Error processing message: {e}")
+                logger.error("Error processing message: %s", e)
             retry_count += 1
             if retry_count >= max_attempts:
-                print(
-                    f"[{message_id}] Max attempts reached, retry message delivery...", flush=True)
+                logger.info(
+                    "[%s, %s] Max attempts reached, retry message delivery...", message_id, delivery_count)
                 return MessageResult.RETRY
 
-            print(f"[{message_id}, {delivery_count}] Retrying in {
-                  wait_time} seconds...", flush=True)
+            logger.info("[%s, %s] Retrying in %s seconds...",
+                        message_id, delivery_count, wait_time)
             await asyncio.sleep(wait_time)
             wait_time *= 2
 
