@@ -359,7 +359,7 @@ resource apiWorkloadApp 'Microsoft.App/containerApps@2023-05-01' = {
             // Simulator connection:
             { name: 'OPENAI_ENDPOINT', value: 'http://${apiSim.properties.configuration.ingress.fqdn}' }
             { name: 'OPENAI_API_KEY', secretRef: 'simulator-api-key' }
-            { name: 'OPENAI_EMBEDDING_DEPLOYMENT', value: 'embedding' }
+            { name: 'OPENAI_EMBEDDING_DEPLOYMENT', value: 'embedding1m' }
 
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'app-insights-connection-string' }
             { name: 'OTEL_METRIC_EXPORT_INTERVAL', value: '10000' } // metric export interval in milliseconds
@@ -432,7 +432,7 @@ resource apiSim 'Microsoft.App/containerApps@2023-05-01' = {
         }
         {
           name: 'deployment-config'
-          value: loadTextContent('../simulator/examples/openai_deployment_config.json')
+          value: loadTextContent('./openai_deployment_config.json')
         }
       ]
       registries: [

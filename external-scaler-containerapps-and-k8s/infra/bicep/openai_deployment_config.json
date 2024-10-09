@@ -1,0 +1,22 @@
+{
+	"embedding10k": {
+		"model": "text-embedding-ada-002",
+		"tokensPerMinute": 10000
+	},
+	"embedding100k": {
+		"model": "text-embedding-ada-002",
+		"tokensPerMinute": 100000
+	},
+	"embedding1m": {
+		"model": "text-embedding-ada-002",
+		"tokensPerMinute": 1000000
+	},
+	"embedding10m": {
+		"model": "text-embedding-ada-002",
+		"tokensPerMinute": 10000000
+	},
+	"embedding100m": {
+		"model": "text-embedding-ada-002",
+		"tokensPerMinute": 100000000
+	}
+}
