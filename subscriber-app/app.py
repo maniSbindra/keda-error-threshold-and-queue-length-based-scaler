@@ -11,7 +11,7 @@ from openai import APIStatusError, AzureOpenAI
 
 import config
 import metrics
-from service_bus import MessageResult, apply_retry, process_subscription_messages
+from service_bus import MessageProcessingOptions, MessageResult, apply_retry,process_subscription_messages
 
 log_level = os.getenv("LOG_LEVEL") or "INFO"
 
@@ -85,13 +85,18 @@ else:
         "🚀 Azure Monitor telemetry not configured (set APPLICATIONINSIGHTS_CONNECTION_STRING)"
     )
 
+options = MessageProcessingOptions()
+options.max_messages_per_batch=config.MAX_MESSAGES_PER_BATCH
+options.max_failures_per_batch=config.MAX_FAILURES_PER_BATCH
+options.circuit_breaker_open_sleep_time=config.CIRCUIT_BREAKER_OPEN_SLEEP_TIME
 
 service_bus_client = get_service_bus_client()
-handler = apply_retry(message_processor)
+handler = apply_retry(message_processor, max_attempts=config.MAX_RETRIES_PER_MESSAGE + 1)
 asyncio.run(
     process_subscription_messages(
         service_bus_client,
         config.SERVICE_BUS_TOPIC_NAME,
         config.SERVICE_BUS_SUBSCRIPTION_NAME,
-        handler)
+        handler,
+        options)
 )

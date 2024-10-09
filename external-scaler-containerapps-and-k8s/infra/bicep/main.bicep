@@ -351,11 +351,15 @@ resource apiWorkloadApp 'Microsoft.App/containerApps@2023-05-01' = {
             { name: 'SERVICE_BUS_TOPIC_NAME', value: serviceBusTopic.name }
             { name: 'SERVICE_BUS_SUBSCRIPTION_NAME', value: serviceBusTopicSubscription.name }
 
+            { name: 'MAX_MESSAGES_PER_BATCH', value: '10' }
+            { name: 'MAX_FAILURES_PER_BATCH', value: '2' }
+            { name:'CIRCUIT_BREAKER_OPEN_SLEEP_TIME', value:'10'}
+            { name: 'MAX_RETRIES_PER_MESSAGE', value: '3' }
+
             // Simulator connection:
             { name: 'OPENAI_ENDPOINT', value: 'http://${apiSim.properties.configuration.ingress.fqdn}' }
             { name: 'OPENAI_API_KEY', secretRef: 'simulator-api-key' }
             { name: 'OPENAI_EMBEDDING_DEPLOYMENT', value: 'embedding' }
-
 
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'app-insights-connection-string' }
             { name: 'OTEL_METRIC_EXPORT_INTERVAL', value: '10000' } // metric export interval in milliseconds
@@ -519,4 +523,3 @@ output serviceBusTopicSubscriptionName string = serviceBusTopicSubscription.name
 output serviceBusNamespace string = serviceBusNamespace.name
 
 output simulatorUrl string = 'https:://${apiSim.properties.configuration.ingress.fqdn}'
-
