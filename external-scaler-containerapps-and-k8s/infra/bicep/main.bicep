@@ -28,8 +28,8 @@ var keyVaultName = replace('scaler-${baseName}', '-', '')
 
 var serviceBusNamespaceName = 'aoai-servicebus-${baseName}'
 var serviceBusQueueName = 'aoai-queue-${baseName}'
-var serviceBusTopicName = 'aoai-topic-${baseName}'
-var serviceBusTopicSubscriptionName = 'aoai-subscription-${baseName}'
+var serviceBusTopicName = 'workload'
+var serviceBusTopicSubscriptionName = 'workload-subscription'
 
 var extScalerAppName = 'aoai-external-scaler'
 var workloadAppName = 'aoai-workload-app'
@@ -353,7 +353,7 @@ resource apiWorkloadApp 'Microsoft.App/containerApps@2023-05-01' = {
 
             { name: 'MAX_MESSAGES_PER_BATCH', value: '10' }
             { name: 'MAX_FAILURES_PER_BATCH', value: '2' }
-            { name:'CIRCUIT_BREAKER_OPEN_SLEEP_TIME', value:'10'}
+            { name: 'CIRCUIT_BREAKER_OPEN_SLEEP_TIME', value: '10' }
             { name: 'MAX_RETRIES_PER_MESSAGE', value: '3' }
 
             // Simulator connection:
@@ -491,6 +491,16 @@ resource apiSim 'Microsoft.App/containerApps@2023-05-01' = {
   }
 }
 
+var workbookContent = replace(
+  replace(
+    replace(loadTextContent('./keda-workbook.json'), '##SUBSCRIPTION_ID##', subscription().subscriptionId),
+    '##RESOURCE_GROUP##',
+    resourceGroup().name
+  ),
+  '##SERVICE_BUS_NAMESPACE##',
+  serviceBusNamespace.name
+)
+
 resource workbook 'Microsoft.Insights/workbooks@2023-06-01' = {
   name: guid(subscription().subscriptionId, resourceGroup().name, 'keda-workbook')
   location: location
@@ -498,7 +508,7 @@ resource workbook 'Microsoft.Insights/workbooks@2023-06-01' = {
   properties: {
     displayName: 'KEDA workbook'
     description: 'Workbook to show relevant metrics from the system'
-    serializedData: loadTextContent('./keda-workbook.json')
+    serializedData: workbookContent
     sourceId: logAnalytics.id
     category: 'workbook'
     version: '1.0'
