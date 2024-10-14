@@ -93,7 +93,7 @@ async def process_subscription_messages(
 
                     message_count = len(received_msgs)
                     if message_count > 0:
-                        logger.info("⚡Got messages: count=%s", message_count)
+                        logger.info("⚡ Got messages: count=%s", message_count)
 
                         # process messages in parallel
                         results = await asyncio.gather(*[__wrapped_handler(receiver, handler, msg) for msg in received_msgs])
