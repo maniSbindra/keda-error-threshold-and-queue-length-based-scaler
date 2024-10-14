@@ -3,6 +3,8 @@ import logging
 import os
 
 import jsons
+import jsons.exceptions
+
 from azure.identity import DefaultAzureCredential
 from azure.monitor.opentelemetry import configure_azure_monitor
 from azure.servicebus import ServiceBusReceivedMessage
@@ -11,7 +13,7 @@ from openai import APIStatusError, AzureOpenAI
 
 import config
 import metrics
-from service_bus import MessageProcessingOptions, MessageResult, apply_retry,process_subscription_messages
+from service_bus import MessageProcessingOptions, MessageResult, apply_retry, process_subscription_messages
 
 log_level = os.getenv("LOG_LEVEL") or "INFO"
 
@@ -48,8 +50,16 @@ async def message_processor(msg: ServiceBusReceivedMessage) -> MessageResult:
     message_id = msg.message_id
     delivery_count = msg.delivery_count
     logger.info("[%s, %s] Processing message...", message_id, delivery_count)
-    body = jsons.loads(str(msg))
-    text = body["text"]
+
+    try:
+        body = jsons.loads(str(msg))
+        text = body["text"]
+    except jsons.exceptions.DecodeError as e:
+        # Bad message format - drop the message
+        logger.error("[%s, %s] Failed to decode message body: %s",
+                     message_id, delivery_count, e)
+        return MessageResult.DROP
+
     try:
         response = aoai_client.embeddings.create(
             input=text, model=config.OPENAI_EMBEDDING_DEPLOYMENT)
@@ -86,12 +96,15 @@ else:
     )
 
 options = MessageProcessingOptions()
-options.max_messages_per_batch=config.MAX_MESSAGES_PER_BATCH
-options.max_failures_per_batch=config.MAX_FAILURES_PER_BATCH
-options.circuit_breaker_open_sleep_time=config.CIRCUIT_BREAKER_OPEN_SLEEP_TIME
+options.max_messages_per_batch = config.MAX_MESSAGES_PER_BATCH
+options.max_failures_per_batch = config.MAX_FAILURES_PER_BATCH
+options.circuit_breaker_open_sleep_time = config.CIRCUIT_BREAKER_OPEN_SLEEP_TIME
+
+logger.info("🔧 options: %s", options)
 
 service_bus_client = get_service_bus_client()
-handler = apply_retry(message_processor, max_attempts=config.MAX_RETRIES_PER_MESSAGE + 1)
+handler = apply_retry(
+    message_processor, max_attempts=config.MAX_RETRIES_PER_MESSAGE + 1)
 asyncio.run(
     process_subscription_messages(
         service_bus_client,
