@@ -1,8 +1,9 @@
 #!/bin/bash
 set -e
 
-SCALER_IMAGE_NAME=containerapp-and-k8s-keda-ext-scaler:v0.4 # this is the image name with tag
+SCALER_IMAGE_NAME=${SCALER_IMAGE_NAME:=containerapp-and-k8s-keda-ext-scaler:v0.5} # this is the image name with tag
 WORKLOAD_IMAGE_NAME=${WORKLOAD_IMAGE_NAME:=subscriber-app:v0.1}
+SCALER_LOG_LEVEL=${SCALER_LOG_LEVEL:=debug}
 
 
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
@@ -191,8 +192,8 @@ az deployment group create \
         --template-file "$script_dir/main.bicep" \
         --parameters location="${LOCATION}" \
         --parameters baseName="${BASE_NAME}" \
-        --parameters scalerLogLevel=debug \
-        --parameters kedaExternalScalerImageTag=${SCALER_IMAGE_NAME} \
+        --parameters scalerLogLevel="${SCALER_LOG_LEVEL}" \
+        --parameters kedaExternalScalerImageTag="${SCALER_IMAGE_NAME}" \
         --parameters workloadImageTag="${WORKLOAD_IMAGE_NAME}" \
         --parameters simulatorImageTag="aoai-api-simulator:${simulator_image_tag}" \
         --parameters simulatorApiKey="${SIMULATOR_API_KEY}" \
