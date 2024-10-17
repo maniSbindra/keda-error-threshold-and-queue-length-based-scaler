@@ -82,6 +82,7 @@ func TestGetRevisedMetricValueErrorsAboveThreshold(t *testing.T) {
 	}
 
 	testCases := []struct {
+		name                                                  string
 		replicaCountDuringLastScaleDownRequest                int
 		msgQueueLength                                        int
 		rate429Errors                                         int
@@ -93,6 +94,7 @@ func TestGetRevisedMetricValueErrorsAboveThreshold(t *testing.T) {
 		expected                                              int
 	}{
 		{
+			name:                                   "Last replica count is -1",
 			replicaCountDuringLastScaleDownRequest: -1,
 			msgQueueLength:                         20,
 			rate429Errors:                          6,
@@ -104,6 +106,20 @@ func TestGetRevisedMetricValueErrorsAboveThreshold(t *testing.T) {
 			expected: 10,
 		},
 		{
+			name:                                   "rate429Errors is one full threshold",
+			replicaCountDuringLastScaleDownRequest: 6,
+			msgQueueLength:                         60,
+			rate429Errors:                          6,
+			workloadReplicaCount:                   6,
+			minReplicas:                            1,
+			maxReplicas:                            7,
+			timeSinceLastScaleDownRequest:          time.Minute * 2,
+			expectedRevisedReplicaCountDuringLastScaleDownRequest: 5,
+			expected: 50, // scale down by 1 replicas
+		},
+
+		{
+			name:                                   "rate429Errors is twice the threshold",
 			replicaCountDuringLastScaleDownRequest: 6,
 			msgQueueLength:                         60,
 			rate429Errors:                          10,
@@ -111,10 +127,11 @@ func TestGetRevisedMetricValueErrorsAboveThreshold(t *testing.T) {
 			minReplicas:                            1,
 			maxReplicas:                            7,
 			timeSinceLastScaleDownRequest:          time.Minute * 2,
-			expectedRevisedReplicaCountDuringLastScaleDownRequest: 5,
-			expected: 50,
+			expectedRevisedReplicaCountDuringLastScaleDownRequest: 4,
+			expected: 40, // scale down by 2 replicas
 		},
 		{
+			name:                                   "rate429Errors is twice the threshold (ignore last scale-down request)",
 			replicaCountDuringLastScaleDownRequest: 5,
 			msgQueueLength:                         60,
 			rate429Errors:                          10,
@@ -122,10 +139,11 @@ func TestGetRevisedMetricValueErrorsAboveThreshold(t *testing.T) {
 			minReplicas:                            1,
 			maxReplicas:                            7,
 			timeSinceLastScaleDownRequest:          time.Minute * 2,
-			expectedRevisedReplicaCountDuringLastScaleDownRequest: 5,
-			expected: 50,
+			expectedRevisedReplicaCountDuringLastScaleDownRequest: 4,
+			expected: 40,
 		},
 		{
+			name:                                   "don't scale below min replicas",
 			replicaCountDuringLastScaleDownRequest: 2,
 			msgQueueLength:                         70,
 			rate429Errors:                          10,
@@ -137,6 +155,7 @@ func TestGetRevisedMetricValueErrorsAboveThreshold(t *testing.T) {
 			expected: 20,
 		},
 		{
+			name:                                   "rate429Errors is twice the threshold (2)",
 			replicaCountDuringLastScaleDownRequest: 4,
 			msgQueueLength:                         70,
 			rate429Errors:                          10,
@@ -144,10 +163,11 @@ func TestGetRevisedMetricValueErrorsAboveThreshold(t *testing.T) {
 			minReplicas:                            2,
 			maxReplicas:                            7,
 			timeSinceLastScaleDownRequest:          time.Minute * 2,
-			expectedRevisedReplicaCountDuringLastScaleDownRequest: 4,
-			expected: 40,
+			expectedRevisedReplicaCountDuringLastScaleDownRequest: 3,
+			expected: 30,
 		},
 		{
+			name:                                   "Within scaledown window, don't scale down",
 			replicaCountDuringLastScaleDownRequest: 4,
 			msgQueueLength:                         70,
 			rate429Errors:                          10,
@@ -159,6 +179,7 @@ func TestGetRevisedMetricValueErrorsAboveThreshold(t *testing.T) {
 			expected: 40,
 		},
 		{
+			name:                                   "Within scaledown window, don't scale down (2)",
 			replicaCountDuringLastScaleDownRequest: 4,
 			msgQueueLength:                         70,
 			rate429Errors:                          10,
@@ -176,11 +197,11 @@ func TestGetRevisedMetricValueErrorsAboveThreshold(t *testing.T) {
 		result := e.getRevisedMetricValue(tc.msgQueueLength, tc.rate429Errors, tc.workloadReplicaCount, tc.minReplicas, tc.maxReplicas, tc.timeSinceLastScaleDownRequest)
 
 		if e.replicaCountDuringLastScaleDownRequest != tc.expectedRevisedReplicaCountDuringLastScaleDownRequest {
-			t.Errorf("Set replica count mismatch, Expected %d, but got %d", tc.expectedRevisedReplicaCountDuringLastScaleDownRequest, e.replicaCountDuringLastScaleDownRequest)
+			t.Errorf("Set replica count mismatch, Expected %d, but got %d (%q)", tc.expectedRevisedReplicaCountDuringLastScaleDownRequest, e.replicaCountDuringLastScaleDownRequest, tc.name)
 		}
 
 		if result != tc.expected {
-			t.Errorf("Expected %d, but got %d", tc.expected, result)
+			t.Errorf("Expected %d, but got %d (%q)", tc.expected, result, tc.name)
 		}
 
 	}

@@ -74,7 +74,26 @@
 		  "size": 0,
 		  "aggregation": 3,
 		  "showAnalytics": true,
-		  "title": "OpenAI Embeddings Requests by Response Status",
+		  "title": "subscriber-app: OpenAI Embeddings Requests by Response Status",
+		  "timeContext": {
+			"durationMs": 86400000
+		  },
+		  "queryType": 0,
+		  "resourceType": "microsoft.operationalinsights/workspaces",
+		  "visualization": "timechart"
+		},
+		"name": "queryOpenAIEmbeddingsRequests"
+	  },
+	  {
+		"type": 3,
+		"content": {
+		  "version": "KqlItem/1.0",
+		  "query": "AppMetrics\n| where TimeGenerated > {timeRange:start} and TimeGenerated < {timeRange:end}\n| where Name == \"aoai-api-simulator.latency.full\"\n| extend StatusCode = tostring(Properties.status_code), Deployment = tostring(Properties.deployment) \n| extend Label = strcat(Deployment, \"-\", StatusCode) \n| summarize RequestCount=sum(ItemCount) by bin(TimeGenerated, 10s), Label\n\n",
+		  "showQuery": true,
+		  "size": 0,
+		  "aggregation": 3,
+		  "showAnalytics": true,
+		  "title": "simulator: Requests by Deployment and Status",
 		  "timeContext": {
 			"durationMs": 86400000
 		  },

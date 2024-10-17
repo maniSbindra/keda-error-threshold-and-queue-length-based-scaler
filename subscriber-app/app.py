@@ -62,7 +62,9 @@ async def message_processor(msg: ServiceBusReceivedMessage) -> MessageResult:
 
     try:
         response = aoai_client.embeddings.create(
-            input=text, model=config.OPENAI_EMBEDDING_DEPLOYMENT)
+            input=text, model=config.OPENAI_EMBEDDING_DEPLOYMENT, 
+            extra_headers={"x-priority" : "low"}
+            )
         logger.info(
             "[%s, %s] Got embedding: [%s, %s...]",
             message_id,

@@ -34,16 +34,16 @@ var serviceBusTopicSubscriptionName = 'workload-subscription'
 var extScalerAppName = 'aoai-external-scaler'
 var workloadAppName = 'aoai-workload-app'
 
-var queueMessageCountPerReplicas = '10'
-var rate429ErrorThreshold = '5'
+var queueMessageCountPerReplica = 250
+var rate429ErrorThreshold = 10
 var metricsBackend = 'azure'
 var instanceComputeBackend = 'containerApps'
 var timeBetweenScaleDownRequestsMinutes = '1'
 // var msgQueueLengthMetricName = 'Messages'
-var rate429ErrorMetricName = 'rate_429_error'
+var rate429ErrorMetricName = 'subscriber-app.openai.embeddings.retries'
 
-var minReplicas = '1'
-var maxReplicas = '7'
+var workloadMinReplicas = 0
+var workloadMaxReplicas = 7
 
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2021-12-01-preview' existing = {
   name: containerRegistryName
@@ -274,8 +274,8 @@ resource apiExtScaler 'Microsoft.App/containerApps@2023-05-01' = {
             memory: '0.5Gi'
           }
           env: [
-            { name: 'QUEUE_MESSAGE_COUNT_PER_REPLICAS', value: queueMessageCountPerReplicas }
-            { name: 'RATE_429_ERROR_THRESHOLD', value: rate429ErrorThreshold }
+            { name: 'QUEUE_MESSAGE_COUNT_PER_REPLICAS', value: string(queueMessageCountPerReplica) }
+            { name: 'RATE_429_ERROR_THRESHOLD', value: string(rate429ErrorThreshold) }
             { name: 'METRICS_BACKEND', value: metricsBackend }
             { name: 'INSTANCE_COMPUTE_BACKEND', value: instanceComputeBackend }
             { name: 'AZURE_CLIENT_ID', value: managedIdentity.properties.clientId }
@@ -368,8 +368,8 @@ resource apiWorkloadApp 'Microsoft.App/containerApps@2023-05-01' = {
       ]
 
       scale: {
-        minReplicas: 1
-        maxReplicas: 7
+        minReplicas: workloadMinReplicas
+        maxReplicas: workloadMaxReplicas
         rules: [
           {
             name: 'keda-external-scaler'
@@ -379,8 +379,8 @@ resource apiWorkloadApp 'Microsoft.App/containerApps@2023-05-01' = {
                 azureSubscriptionId: subscription().subscriptionId
                 containerApp: workloadAppName
                 logAnalyticsWorkspaceId: logAnalytics.properties.customerId
-                minReplicas: minReplicas
-                maxReplicas: maxReplicas
+                minReplicas: string(workloadMinReplicas)
+                maxReplicas: string(workloadMaxReplicas)
                 resourceGroup: resourceGroup().name
                 // scalerAddress: apiExtScaler.properties.configuration.ingress.fqdn
                 scalerAddress: '${apiExtScaler.properties.latestRevisionFqdn}:80'
@@ -415,7 +415,7 @@ resource apiSim 'Microsoft.App/containerApps@2023-05-01' = {
       // old revisions showing in logs etc
       maxInactiveRevisions: 0
       ingress: {
-        external: false
+        external: true
         targetPort: 8000
         allowInsecure: true
       }
