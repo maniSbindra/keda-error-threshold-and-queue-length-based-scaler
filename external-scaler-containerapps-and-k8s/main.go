@@ -267,11 +267,14 @@ func (e *ExternalScaler) GetMetrics(_ context.Context, metricRequest *pb.GetMetr
 	slog.Info("GetMetrics called")
 
 	// Validate the metadata and set the required configurations
-	e.ValidateSetRequiredMetadata(metricRequest.ScaledObjectRef.ScalerMetadata)
+	if err := e.ValidateSetRequiredMetadata(metricRequest.ScaledObjectRef.ScalerMetadata); err != nil {
+		slog.Error(fmt.Sprintf("Failed to validate metadata: %v\n", err))
+		return nil, err
+	}
 
 	replicas, err := e.ReplicaCountReader.GetInstanceCount()
 	if err != nil {
-		fmt.Printf("Failed to get deployment instance count: %v\n", err)
+		slog.Error(fmt.Sprintf("Failed to get deployment instance count: %v\n", err))
 		return nil, err
 	}
 
@@ -279,7 +282,7 @@ func (e *ExternalScaler) GetMetrics(_ context.Context, metricRequest *pb.GetMetr
 
 	rate429Errors, err := e.MetricsReader.GetRate429Errors()
 	if err != nil {
-		fmt.Printf("Failed to get rate_429_errors: %v\n", err)
+		slog.Error(fmt.Sprintf("Failed to get rate_429_errors: %v\n", err))
 		return nil, err
 	}
 
@@ -287,7 +290,7 @@ func (e *ExternalScaler) GetMetrics(_ context.Context, metricRequest *pb.GetMetr
 
 	msgQueueLength, err := e.MetricsReader.GetQueueLength()
 	if err != nil {
-		fmt.Printf("Failed to get msg_queue_length: %v\n", err)
+		slog.Error(fmt.Sprintf("Failed to get msg_queue_length: %v\n", err))
 		return nil, err
 	}
 
@@ -295,6 +298,7 @@ func (e *ExternalScaler) GetMetrics(_ context.Context, metricRequest *pb.GetMetr
 
 	revisedMetricValue := e.getRevisedMetricValue(msgQueueLength, rate429Errors, replicas, e.MIN_REPLICAS, e.MAX_REPLICAS, time.Since(e.lastScaleDownRequestTime))
 
+	slog.Debug(fmt.Sprintf("GetMetrics, returning revisedMetricValue: %d\n", revisedMetricValue))
 	return &pb.GetMetricsResponse{
 		MetricValues: []*pb.MetricValue{{
 			MetricName:  "qThreshold",
@@ -305,11 +309,18 @@ func (e *ExternalScaler) GetMetrics(_ context.Context, metricRequest *pb.GetMetr
 
 func (e *ExternalScaler) getRevisedMetricValue(msgQueueLength int, rate429Errors int, workloadReplicaCount int, minReplicas int, maxReplicas int, timeSinceLastScaleDownRequest time.Duration) int {
 
-	slog.Debug(fmt.Sprintf("Current Time UTC: %v", time.Now().UTC()))
-	fmt.Println("############################################################################################################")
-	slog.Info(fmt.Sprintf("msgQueueLength: %d, rate429Errors: %d, workloadReplicaCount: %d, minReplicas: %d, maxReplicas: %d, timeSinceLastScaleDownRequest: %v", msgQueueLength, rate429Errors, workloadReplicaCount, minReplicas, maxReplicas, timeSinceLastScaleDownRequest))
+	retVal := calculateMetricValue(e, workloadReplicaCount, rate429Errors, msgQueueLength, minReplicas, timeSinceLastScaleDownRequest)
 
+	slog.Info(fmt.Sprintf("msgQueueLength: %d, rate429Errors: %d, workloadReplicaCount: %d, minReplicas: %d, maxReplicas: %d, timeSinceLastScaleDownRequest: %v, returning: %d", msgQueueLength, rate429Errors, workloadReplicaCount, minReplicas, maxReplicas, timeSinceLastScaleDownRequest, retVal))
+
+	return retVal
+}
+
+func calculateMetricValue(e *ExternalScaler, workloadReplicaCount int, rate429Errors int, msgQueueLength int, minReplicas int, timeSinceLastScaleDownRequest time.Duration) int {
 	var retVal int
+	slog.Debug(fmt.Sprintf("Current Time UTC: %v", time.Now().UTC()))
+	slog.Debug("############################################################################################################")
+
 	scaleDownWaitInterval := time.Minute * time.Duration(e.TIME_BETWEEN_SCALE_DOWN_REQUESTS_MINUTES)
 
 	if e.replicaCountDuringLastScaleDownRequest == -1 {
@@ -317,19 +328,19 @@ func (e *ExternalScaler) getRevisedMetricValue(msgQueueLength int, rate429Errors
 	}
 
 	if rate429Errors < e.RATE_429_ERROR_THRESHOLD {
-		fmt.Printf("rate429Errors < RATE_429_ERROR_THRESHOLD(%d), returning msgQueueLength \n", e.RATE_429_ERROR_THRESHOLD)
+		slog.Debug(fmt.Sprintf("rate429Errors < RATE_429_ERROR_THRESHOLD(%d), returning msgQueueLength \n", e.RATE_429_ERROR_THRESHOLD))
 		return msgQueueLength
 	}
 
 	if workloadReplicaCount <= minReplicas {
 		retVal = e.QUEUE_MESSAGE_COUNT_PER_REPLICA * minReplicas
-		fmt.Printf("workloadReplicaCount <= minReplicas, returning QUEUE_MESSAGE_COUNT_PER_REPLICA(%d) * minReplicas(%d): %d\n", e.QUEUE_MESSAGE_COUNT_PER_REPLICA, minReplicas, retVal)
+		slog.Debug(fmt.Sprintf("workloadReplicaCount <= minReplicas, returning QUEUE_MESSAGE_COUNT_PER_REPLICA(%d) * minReplicas(%d): %d\n", e.QUEUE_MESSAGE_COUNT_PER_REPLICA, minReplicas, retVal))
 		return retVal
 	}
 
 	if timeSinceLastScaleDownRequest < scaleDownWaitInterval {
 		retVal = e.replicaCountDuringLastScaleDownRequest * e.QUEUE_MESSAGE_COUNT_PER_REPLICA
-		fmt.Printf("timeSinceLastScaleDownRequest < scaleDownWaitInterval, returning replicaCountDuringLastScaleDownRequest(%d) * QUEUE_MESSAGE_COUNT_PER_REPLICA(%d): %d\n", e.replicaCountDuringLastScaleDownRequest, e.QUEUE_MESSAGE_COUNT_PER_REPLICA, retVal)
+		slog.Debug(fmt.Sprintf("timeSinceLastScaleDownRequest < scaleDownWaitInterval, returning replicaCountDuringLastScaleDownRequest(%d) * QUEUE_MESSAGE_COUNT_PER_REPLICA(%d): %d\n", e.replicaCountDuringLastScaleDownRequest, e.QUEUE_MESSAGE_COUNT_PER_REPLICA, retVal))
 		return retVal
 	}
 
@@ -339,12 +350,15 @@ func (e *ExternalScaler) getRevisedMetricValue(msgQueueLength int, rate429Errors
 	// Create scale down request by setting return value appropriately
 
 	e.lastScaleDownRequestTime = time.Now()
-	requestedReplicaCount := workloadReplicaCount - 1
+	replicasToReduceBy := int(rate429Errors / e.RATE_429_ERROR_THRESHOLD)
+	requestedReplicaCount := workloadReplicaCount - replicasToReduceBy
+	if requestedReplicaCount < minReplicas {
+		requestedReplicaCount = minReplicas
+	}
 	e.replicaCountDuringLastScaleDownRequest = requestedReplicaCount
 	retVal = requestedReplicaCount * e.QUEUE_MESSAGE_COUNT_PER_REPLICA
-	fmt.Printf("Returning requestedReplicaCount (%d) * QUEUE_MESSAGE_COUNT_PER_REPLICA(%d): %d \n", requestedReplicaCount, e.QUEUE_MESSAGE_COUNT_PER_REPLICA, retVal)
+	slog.Debug(fmt.Sprintf("Returning requestedReplicaCount (%d) * QUEUE_MESSAGE_COUNT_PER_REPLICA(%d): %d \n", requestedReplicaCount, e.QUEUE_MESSAGE_COUNT_PER_REPLICA, retVal))
 	return retVal
-
 }
 
 func (e *ExternalScaler) StreamIsActive(scaledObject *pb.ScaledObjectRef, epsServer pb.ExternalScaler_StreamIsActiveServer) error {

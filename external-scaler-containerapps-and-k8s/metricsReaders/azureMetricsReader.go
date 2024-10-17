@@ -61,7 +61,9 @@ func (a *AzureMetricsReader) getLogAnalyticsBearerToken(tp TokenProvider) (beare
 }
 
 func (a *AzureMetricsReader) GetRate429Errors() (int, error) {
-	return a.GetLogAnalyticsQueryResult(fmt.Sprintf("AppMetrics | where Name  == '%s' | top 1 by TimeGenerated desc | project rate_429_errors=(Sum /ItemCount)", a.error429MetricName))
+	// Get number of 429s in the last minute
+	// NOTE: this won't be a full minute's worth of data due to the ingestion time for metrics
+	return a.GetLogAnalyticsQueryResult(fmt.Sprintf("AppMetrics | where Name  == '%s' | where TimeGenerated > ago(1m) | summarize rate_429_errors=sum(ItemCount)", a.error429MetricName))
 }
 
 func (a *AzureMetricsReader) GetQueueOrTopicLengthRequestUri() string {
@@ -144,9 +146,6 @@ func (a *AzureMetricsReader) GetQueueLength() (int, error) {
 	queueOrTopicLength := result["properties"].(map[string]interface{})["countDetails"].(map[string]interface{})["activeMessageCount"].(float64)
 
 	return int(queueOrTopicLength), nil
-
-	// get auth token
-
 }
 
 func (a *AzureMetricsReader) GetLogAnalyticsQueryResult(query string) (int, error) {
