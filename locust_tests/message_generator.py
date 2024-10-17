@@ -1,3 +1,7 @@
+"""
+This locust test script sends messages to the Azure Service Bus topic
+that the subscriber-app listens to.
+"""
 import json
 import logging
 import os

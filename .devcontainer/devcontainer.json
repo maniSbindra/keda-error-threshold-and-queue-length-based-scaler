@@ -39,7 +39,9 @@
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	"forwardPorts": [
 		5060,
-		9090
+		9090,
+		8089, // locust
+		8091  // locust
 	]
 
 	// Use 'postCreateCommand' to run commands after the container is created.
